@@ -23,6 +23,11 @@ DerivedData/
 # --- Test sonuçları ---
 *.xcresult
 
+# --- Statik denetim raporu ---
+# `scripts/static_check.py` her koşuda bu dosyayı üretir; CI'da artifact
+# olarak yüklenir, depoda tutulmasına gerek yoktur.
+static-check.txt
+
 # --- Swift Package Manager (kullanılmıyor ama ihtimale karşı) ---
 .swiftpm/
 .build/
