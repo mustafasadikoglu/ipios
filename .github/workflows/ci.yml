@@ -47,10 +47,16 @@ jobs:
   # 2) Gerçek derleme. macOS runner'ı Xcode ile birlikte gelir.
   #    Belirli bir simülatör adı yerine "generic/platform=iOS Simulator"
   #    kullanılır: cihaz adları runner imajıyla değişir, bu hedef değişmez.
+  #
+  #    `macos-14` yerine `macos-15` seçildi: macOS 14 imajı kullanımdan
+  #    kaldırılmış durumda ve beraberinde yalnızca Xcode 15.x taşıyor. Ayrıca
+  #    Xcode 15'in iOS 18+ simülatör çalışma zamanı yok; bu da test işinde
+  #    cihaz bulunamamasına yol açıyordu. macOS 15 imajı Xcode 16.x ile gelir
+  #    ve iOS 18 çalışma zamanını içerir.
   # ------------------------------------------------------------------
   build:
     name: Derleme (iOS Simulator)
-    runs-on: macos-14
+    runs-on: macos-15
     needs: static-checks
     env:
       # İmzasız derleme. Bu üç ayar olmadan xcodebuild bir geliştirici
@@ -98,6 +104,8 @@ jobs:
             $SIGNING \
             build
 
+      # Hangi Xcode ile derlendiği, derleme başarısız olduğunda ilk bakılacak
+      # bilgidir; bu yüzden adım `if: always()` ile her koşulda çalışır.
       - name: Hata ayıklama için Xcode sürümünü kaydet
         if: always()
         run: xcodebuild -version > xcode-version.txt
@@ -114,10 +122,15 @@ jobs:
   # 3) Birim testleri. Simülatör adı sabit yazılmaz; runner'da kurulu
   #    cihazlar arasından sırayla denenip ilk bulunan kullanılır. Böylece
   #    Apple imajı güncelleyip bir cihazı kaldırdığında iş kırılmaz.
+  #
+  #    Liste en yeni cihazdan geriye doğru sıralıdır: macOS 15 imajı Xcode
+  #    16.x ile geldiği için iPhone 16 / iPad Pro (M4) artık gerçekten
+  #    kurulu. Eski adlar yedek olarak duruyor, tek bir cihaz bulunamazsa
+  #    iş anlaşılır bir hatayla durur.
   # ------------------------------------------------------------------
   test:
     name: Birim testleri
-    runs-on: macos-14
+    runs-on: macos-15
     needs: build
     env:
       SIGNING: CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
@@ -134,9 +147,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Tercih sırası: önce iPhone, sonra iPad. Kurulu olan ilk cihaz seçilir.
+          # Tercih sırası: en yeni cihazdan geriye. Kurulu olan ilk cihaz seçilir.
           ADAYLAR=(
-            "iPhone 16" "iPhone 15" "iPhone 14" "iPhone SE (3rd generation)"
+            "iPhone 16 Pro" "iPhone 16" "iPhone 15 Pro" "iPhone 15"
+            "iPhone SE (3rd generation)" "iPhone 14"
             "iPad Pro 11-inch (M4)" "iPad Pro (11-inch) (4th generation)"
             "iPad Air (5th generation)" "iPad (10th generation)"
           )
@@ -156,6 +170,7 @@ jobs:
           fi
 
           echo "Seçilen simülatör: $SECILEN"
+          echo "### Seçilen simülatör: $SECILEN" >> "$GITHUB_STEP_SUMMARY"
           xcodebuild -project IPiOS.xcodeproj \
             -scheme IPiOS \
             -destination "platform=iOS Simulator,name=$SECILEN" \
@@ -167,8 +182,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: |
-            **/*.xcresult
-            xcode-version.txt
+          path: '**/*.xcresult'
           if-no-files-found: ignore
           retention-days: 7

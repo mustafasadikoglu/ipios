@@ -58,23 +58,29 @@ Xcode arayüzünde: `IPiOS` şemasını seçip çalıştırın. İmzalama için
 
 Mac'iniz olmasa da, hatta projeye hiç dokunmadan da kodun derlendiğini
 görebilirsiniz: depoyu GitHub'a ittiğinizde `.github/workflows/ci.yml` otomatik
-olarak çalışır. GitHub'ın `macos-14` runner'ı Xcode ile birlikte gelir, yani
+olarak çalışır. GitHub'ın `macos-15` runner'ı Xcode ile birlikte gelir, yani
 derleme gerçekten Apple araç zinciriyle yapılır — bu, macOS olmayan bir
 makinede yapılabilecek en sağlam doğrulamadır.
 
-Runner'daki Xcode 15.4, XcodeGen'in varsayılan proje biçimini (objectVersion 77)
-açamaz. Bu yüzden `project.yml` içinde proje biçimi sabitlenmiştir:
+`macos-14` yerine `macos-15` seçilmiştir: macOS 14 imajı kullanımdan kaldırılmış
+durumda ve beraberinde yalnızca Xcode 15.x taşıyor. Xcode 15'in iOS 18 simülatör
+çalışma zamanı bulunmadığı için testler koşacak cihaz bulamıyordu. `macos-15`
+imajı Xcode 16.x ile gelir ve iOS 18 çalışma zamanını içerir; test işi de tercih
+listesinde önce iPhone 16 / iPad Pro (M4) gibi güncel cihazları dener.
+
+`project.yml` içinde proje biçimi yine de sabitlenmiştir, çünkü proje hem CI'da
+hem de yereldeki Xcode'da açılabilmelidir:
 
 ```yaml
 options:
   projectFormat: xcode15_3   # objectVersion 63 — Xcode 15.3'ten 26.x'e kadar okunur
 ```
 
-Sabitleme olmadan XcodeGen `xcode16_0` üretir ve `xcodebuild` projeyi
-"gelecekteki bir Xcode sürümüyle üretilmiş" diyerek reddeder. `xcodeVersion`
-ayarı bunu **değiştirmez**: o yalnızca `LastUpgradeCheck` damgasını etkiler,
-proje biçimini değil. CI, `project.pbxproj` içinde `objectVersion = 63`
-olduğunu ayrıca doğrular, böylece ayar bir gün düşerse hata derleme adımında
+Sabitleme olmadan XcodeGen `xcode16_0` üretir ve Xcode 15.3–15.4 ile açılamaz.
+`xcodeVersion` ayarı bunu **değiştirmez**: o yalnızca `LastUpgradeCheck`
+damgasını etkiler, proje biçimini değil. CI, `project.pbxproj` içinde
+`objectVersion = 63` olduğunu ayrıca doğrular, böylece ayar bir gün düşerse
+hata derleme adımında
 değil hemen orada ve anlaşılır biçimde görünür.
 
 Akış üç aşamalıdır. Önce Ubuntu üzerinde `scripts/static_check.py` koşar ve
