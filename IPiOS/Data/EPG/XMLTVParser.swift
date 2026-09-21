@@ -99,13 +99,26 @@ final class XMLTVParser: NSObject {
 
     /// XMLTV zaman damgasını `Date`'e çevirir.
     ///
-    /// Kabul edilen biçimler: `20260921200000 +0300`, `20260921200000`, `202609212000 +0300`.
+    /// Kabul edilen biçimler: `20260921200000 +0300`, `20260921200000`,
+    /// `202609212000 +0300`, `20260921` (gün hassasiyetinde; saat 00:00 kabul
+    /// edilir).
     static func parseXMLTVDate(_ raw: String) -> Date? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: " ").map(String.init)
 
-        // İlk öbek tarih damgası (14 veya 12 hane), ikinci öbek saat dilimidir.
-        guard let stamp = parts.first, stamp.count >= 12 else { return nil }
+        // İlk öbek tarih damgası, ikinci öbek saat dilimidir.
+        // Biçim **hane sayısından** seçilir; `DateFormatter` hoşgörülü
+        // olmadığı için uzunluk ile biçim birebir eşleşmelidir. Aksi hâlde
+        // bayat bir 10 haneli damga `yyyyMMdd` ile kısmen ayrışıp yanlış bir
+        // tarih döndürürdü; eşleşmeyen uzunluk `nil` döner.
+        guard let stamp = parts.first else { return nil }
+        let format: String
+        switch stamp.count {
+        case 14: format = "yyyyMMddHHmmss"
+        case 12: format = "yyyyMMddHHmm"
+        case 8: format = "yyyyMMdd"
+        default: return nil
+        }
 
         // Saat dilimi kaydırması: "+0300", "-0500". Yarım saatlik dilimler
         // (Hindistan +0530) da bu hesapta doğru çıkar.
@@ -121,21 +134,13 @@ final class XMLTVParser: NSObject {
             }
         }
 
+        // `dateFormat` burada mutlaka atanmalı — `DateFormatter` varsayılan
+        // biçimi bölgeye bağlıdır ve "yyyyMMdd…" damgasını çözemez.
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: timeZoneOffset) ?? TimeZone(secondsFromGMT: 0)
-
-        // Saniye varsa saniyeyi koru; yoksa dakika hassasiyetine düş.
-        // `dateFormat` burada mutlaka atanmalı — `DateFormatter` varsayılan
-        // biçimi bölgeye bağlıdır ve "yyyyMMdd…" damgasını çözemez.
-        let attempts: [(String, Int)] = [("yyyyMMddHHmmss", 14), ("yyyyMMddHHmm", 12)]
-        for (format, length) in attempts where stamp.count >= length {
-            formatter.dateFormat = format
-            if let date = formatter.date(from: String(stamp.prefix(length))) {
-                return date
-            }
-        }
-        return nil
+        formatter.dateFormat = format
+        return formatter.date(from: String(stamp))
     }
 }
 

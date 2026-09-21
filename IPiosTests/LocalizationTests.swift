@@ -57,8 +57,23 @@ final class LocalizationTests: XCTestCase {
     }
 
     /// `"anahtar" = "değer";` satırlarından anahtar listesi çıkarır.
+    ///
+    /// - Note: Paketteki dosya ikili plist ise (bkz. `dictionary(for:)`) anahtar
+    ///   listesi plist'ten alınır. İkili biçimde yinelenen anahtarlar zaten
+    ///   derleme sırasında birleştirildiği için bu yol yinelenmeyi **göremez**;
+    ///   asıl yinelenme denetimi kaynak dosya üzerinde, `scripts/static_check.py`
+    ///   içindeki `yerelleştirme()` bölümünde yapılır. Buradaki test, paket
+    ///   metin biçimindeyse (örneğin test paketine kopyalanmışsa) devreye girer.
     private func keys(inFileAt path: String) -> [String] {
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return [] }
+
+        if let plist = try? PropertyListSerialization.propertyList(
+            from: data, options: [], format: nil
+        ) as? [String: String] {
+            return plist.keys.sorted()
+        }
+
+        guard let content = String(data: data, encoding: .utf8) else { return [] }
         var keys: [String] = []
         for line in content.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -99,9 +114,28 @@ final class LocalizationTests: XCTestCase {
         return found.sorted()
     }
 
+    /// `Localizable.strings` dosyasını anahtar/değer sözlüğü olarak okur.
+    ///
+    /// - Important: `CopyStringsFile` derleme sırasında dosyayı **ikili** bir
+    ///   özellik listesine dönüştürür (`--outputencoding binary`). Yani
+    ///   uygulama paketindeki dosya düz metin değildir; onu `String` olarak
+    ///   okumak `NSCocoaErrorDomain` 259 ("isn't in the correct format") verir.
+    ///   Bu yüzden önce `PropertyListSerialization` denenir — ikili biçim için
+    ///   doğru araç budur. Dosya yine de düz metinse (örneğin test paketine
+    ///   kopyalanmışsa) satır bazlı okuyucuya düşülür.
     private func dictionary(for lang: Lang) throws -> [String: String] {
         let path = try XCTUnwrap(lang.path, "\(lang.rawValue) yerelleştirme dosyası bulunamadı")
-        let raw = try String(contentsOfFile: path, encoding: .utf8)
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+
+        if let plist = try? PropertyListSerialization.propertyList(
+            from: data, options: [], format: nil
+        ) as? [String: String] {
+            return plist
+        }
+
+        guard let raw = String(data: data, encoding: .utf8) else {
+            throw XCTSkip("\(lang.rawValue): dosya ne plist ne UTF-8 metin")
+        }
         var result: [String: String] = [:]
         for line in raw.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)

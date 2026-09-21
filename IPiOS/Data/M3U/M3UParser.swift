@@ -146,8 +146,9 @@ struct M3UParser {
 
     /// `#EXTINF:-1 tvg-id="x" group-title="y",Başlık` satırını çözer.
     ///
-    /// Başlık, son virgülden sonraki kısımdır — çünkü başlığın kendisi virgül
-    /// içerebilir (örneğin "Haber, Spor").
+    /// Sınır, tırnakların dışındaki **ilk** virgüldür. Başlığın kendisi virgül
+    /// içerebilir (örneğin "Haber, Spor") — o virgüller sınırdan sonra kaldığı
+    /// için başlığa dahil olur.
     private static func parseExtInf(_ line: String) -> ParsedExtInf {
         var result = ParsedExtInf()
         var body = String(line.dropFirst("#EXTINF".count))
@@ -157,9 +158,12 @@ struct M3UParser {
         }
 
         // Virgülden önceki kısım süre + attribute'lar, sonrası başlıktır.
-        // Başlık virgül içerebildiği için ilk virgül sınırdır.
+        // Başlık virgül içerebildiği için sınır **ilk** virgüldür — ancak
+        // yalnızca tırnakların *dışındaki* ilk virgül. Tırnak içindeki virgül
+        // bir attribute değerinin parçasıdır; oradan bölmek hem değeri keser
+        // (`tvg-id="abc,Kanal` -> `abc`) hem de değerin kalanını başlık yapar.
         let head: String
-        if let commaIndex = body.firstIndex(of: ",") {
+        if let commaIndex = firstUnquotedComma(in: body) {
             head = String(body[body.startIndex..<commaIndex])
             let tail = String(body[body.index(after: commaIndex)...])
             result.title = tail.trimmingCharacters(in: .whitespaces)
@@ -194,6 +198,23 @@ struct M3UParser {
         }
 
         return result
+    }
+
+    /// Tırnakların dışındaki ilk virgülün konumu; yoksa `nil`.
+    ///
+    /// Kaçış dizisi (`\"`) desteklenmez: M3U listelerinde görülmez ve görmek
+    /// yerine satırı hoşgörüyle ayrıştırmak daha güvenlidir.
+    private static func firstUnquotedComma(in text: String) -> String.Index? {
+        var insideQuotes = false
+        for index in text.indices {
+            let character = text[index]
+            if character == "\"" {
+                insideQuotes.toggle()
+            } else if character == ",", !insideQuotes {
+                return index
+            }
+        }
+        return nil
     }
 
     /// `key="value"` veya `key=value` çiftlerini çıkarır.
