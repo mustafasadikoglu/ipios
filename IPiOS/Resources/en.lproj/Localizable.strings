@@ -1,6 +1,8 @@
 /* IPiOS — English strings (secondary language) */
 
 /* --- General --- */
+/* App name; also used as the screen title when no title is available. */
+"app.name"                      = "IPiOS";
 "common.ok"                     = "OK";
 "common.cancel"                 = "Cancel";
 "common.delete"                 = "Delete";

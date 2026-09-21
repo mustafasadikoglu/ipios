@@ -37,7 +37,12 @@ final class PictureInPictureController: ObservableObject {
             return
         }
 
-        let controller = AVPictureInPictureController(playerLayer: layer)
+        // Kurucu `failable`: katman hazır değilse `nil` döner. Bu durumda
+        // destek bayrağı yanlış bırakılır ve düğme çizilmez.
+        guard let controller = AVPictureInPictureController(playerLayer: layer) else {
+            isSupported = false
+            return
+        }
         controller.delegate = proxy
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         self.controller = controller

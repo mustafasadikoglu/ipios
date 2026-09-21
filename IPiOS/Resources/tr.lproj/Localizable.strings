@@ -1,6 +1,8 @@
 /* IPiOS — Türkçe metinler (birincil dil) */
 
 /* --- Genel --- */
+/* Uygulama adı; başlık boş kaldığında ekran başlığı olarak da kullanılır. */
+"app.name"                      = "IPiOS";
 "common.ok"                     = "Tamam";
 "common.cancel"                 = "Vazgeç";
 "common.delete"                 = "Sil";

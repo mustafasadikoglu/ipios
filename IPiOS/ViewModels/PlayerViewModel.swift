@@ -27,7 +27,9 @@ final class PlayerViewModel: ObservableObject {
 
     var isPlaying: Bool { engine.state.isPlaying }
     var isLive: Bool { engine.isLive }
-    var title: String { item?.title ?? engine.currentTitle }
+    /// Ekran başlığı. Öğe ve motor başlığı boşsa (henüz yükleme yapılmadıysa)
+    /// uygulama adına düşülür; böylece başlık hiçbir zaman boş çizilmez.
+    var title: String { item?.title ?? engine.currentTitle ?? L.t("app.name") }
 
     var subtitle: String? {
         guard let item else { return nil }
@@ -71,8 +73,13 @@ final class PlayerViewModel: ObservableObject {
         showControls()
     }
 
+    /// Oynatıcıyı kapatır ve konumu diske yazılmak üzere planlar.
+    ///
+    /// `persistPosition()` eşzamansızdır; arayüzü bloklamamak için yazma işi
+    /// ayrı bir göreve bırakılır. Görünüm kaybolurken de çağrıldığı için
+    /// burada `await` edilmesi beklenmez.
     func stop() {
-        engine.persistPosition()
+        Task { await engine.persistPosition() }
         engine.stop()
         item = nil
     }
