@@ -5,6 +5,12 @@ options:
     iOS: "16.0"
   createIntermediateGroups: true
   groupSortPosition: top
+  # XcodeGen varsayılanı `xcode16_0` (project objectVersion 77). Bu biçimi
+  # yalnızca Xcode 16+ açabilir; Xcode 15.x "gelecekteki bir Xcode sürümüyle
+  # üretilmiş" diyerek projeyi reddeder. `xcode15_3` objectVersion 63 ve
+  # compatibilityVersion "Xcode 15.3" üretir; Xcode 15.3'ten 26.x'e kadar
+  # tüm sürümler okur. Ayrıntı: docs/MIMARI.md
+  projectFormat: xcode15_3
 
 settings:
   base:

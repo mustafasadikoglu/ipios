@@ -74,6 +74,20 @@ jobs:
       - name: Üretilen projeyi doğrula
         run: |
           test -d IPiOS.xcodeproj || { echo "::error::IPiOS.xcodeproj üretilmedi"; exit 1; }
+
+          # `project.yml` içindeki `projectFormat: xcode15_3` objectVersion 63
+          # üretir. Bu ayar bir gün düşerse XcodeGen varsayılanına (xcode16_0 →
+          # objectVersion 77) döner ve Xcode 15.x projeyi açamaz. O durumda
+          # xcodebuild "gelecekteki bir Xcode sürümüyle üretilmiş" der ama
+          # hangi ayarın sorumlu olduğunu söylemez; bu yüzden burada erken,
+          # anlaşılır bir hatayla durdurulur.
+          PBX=IPiOS.xcodeproj/project.pbxproj
+          if ! grep -q 'objectVersion = 63' "$PBX"; then
+            echo "::error::$PBX içinde objectVersion = 63 bulunamadı. project.yml içindeki 'projectFormat: xcode15_3' ayarını kontrol edin."
+            grep -n 'objectVersion' "$PBX" || true
+            exit 1
+          fi
+
           xcodebuild -list -project IPiOS.xcodeproj
 
       - name: Derle

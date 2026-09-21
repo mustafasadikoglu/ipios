@@ -22,6 +22,11 @@ için (Ubuntu job'ı) hem de yerelde kullanılabilir. Denetledikleri:
     9. Info.plist geçerli mi, `InfoPlist.strings` anahtarlarıyla hizalı mı?
    10. docs/MIMARI.md klasör ağacı gerçek dosya listesiyle eşleşiyor mu?
 
+  Proje tanımı
+   11. project.yml içinde `projectFormat: xcode15_3` sabit mi?
+       (sabit değilse XcodeGen objectVersion 77 üretir ve Xcode 15.x
+       projeyi açamaz — bkz. README, "GitHub üzerinden derleme")
+
 Çıkış kodu 0 ise sorun yok, 1 ise en az bir HATA var. Uyarılar (ör. kullanılmayan
 anahtar) çıkış kodunu değiştirmez.
 """
@@ -77,6 +82,27 @@ def strip_comments(text: str) -> str:
             parcalar.append(text[i])
             i += 1
     return "".join(parcalar)
+
+
+def strip_yaml_comments(text: str) -> str:
+    """YAML `#` yorumlarını satır numarasını koruyarak boşluğa çevirir.
+
+    Çift tırnak içindeki `#` (ör. bir dize değerinin parçası) korunur.
+    Amaç: açıklama satırında geçen bir anahtar adının, gerçek ayar sanılıp
+    yanlış pozitif üretmesini engellemek.
+    """
+    satirlar: list[str] = []
+    for satir in text.split("\n"):
+        tirnak = False
+        kesim = len(satir)
+        for i, c in enumerate(satir):
+            if c == '"':
+                tirnak = not tirnak
+            elif c == "#" and not tirnak:
+                kesim = i
+                break
+        satirlar.append(satir[:kesim])
+    return "\n".join(satirlar)
 
 
 def strings_yukle(path: Path) -> list[tuple[str, str, int]]:
@@ -249,11 +275,45 @@ def dokuman_agaci() -> None:
         hata(f"gerçekte var, ağaçta yok: {', '.join(fazla)}")
 
 
+# --------------------------------------------------------------------------
+# 11: project.yml — proje biçimi sabitlemesi
+# --------------------------------------------------------------------------
+def proje_tanimi() -> None:
+    yaz()
+    yaz("=== PROJECT.YML ===")
+    yol = KOK / "project.yml"
+    if not yol.exists():
+        hata("project.yml yok")
+        return
+
+    icerik = yol.read_text(encoding="utf-8")
+
+    # Yorumları ayıkla: açıklama satırında geçen anahtar adı yanlış pozitif
+    # üretmesin (bkz. .strings blok yorumu vakası).
+    govde = strip_yaml_comments(strip_comments(icerik))
+
+    if not re.search(r"^\s*projectFormat:\s*xcode15_3\s*$", govde, re.M):
+        hata(
+            "project.yml: 'projectFormat: xcode15_3' yok. XcodeGen varsayılanı "
+            "xcode16_0 (objectVersion 77) üretir; macOS runner'daki Xcode 15.x "
+            "bu projeyi açamaz."
+        )
+    else:
+        yaz("  projectFormat: xcode15_3 (objectVersion 63)")
+
+    # İş akışındaki doğrulama adımı bu sabitlemeye dayanır; ikisi birlikte
+    # tutarlı olmalı.
+    akis = KOK / ".github/workflows/ci.yml"
+    if akis.exists() and "objectVersion = 63" not in akis.read_text(encoding="utf-8"):
+        uyari("ci.yml içinde objectVersion denetimi bulunamadı")
+
+
 def main() -> int:
     yerelleştirme()
     kaynak_yapisi()
     info_plist()
     dokuman_agaci()
+    proje_tanimi()
 
     yaz()
     yaz("=== SONUÇ ===")

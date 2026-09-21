@@ -11,7 +11,7 @@ hem ilk açılışta hem de kaynak ekleme ekranında gösterilir.
 
 ## Gereksinimler
 
-- macOS 13+ ve Xcode 15+ (iOS 16.0 SDK)
+- macOS 13+ ve Xcode 15.3+ (iOS 16.0 SDK)
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) — `brew install xcodegen`
 - Hedef: iOS 16.0 ve üzeri, iPhone + iPad
 
@@ -61,6 +61,21 @@ görebilirsiniz: depoyu GitHub'a ittiğinizde `.github/workflows/ci.yml` otomati
 olarak çalışır. GitHub'ın `macos-14` runner'ı Xcode ile birlikte gelir, yani
 derleme gerçekten Apple araç zinciriyle yapılır — bu, macOS olmayan bir
 makinede yapılabilecek en sağlam doğrulamadır.
+
+Runner'daki Xcode 15.4, XcodeGen'in varsayılan proje biçimini (objectVersion 77)
+açamaz. Bu yüzden `project.yml` içinde proje biçimi sabitlenmiştir:
+
+```yaml
+options:
+  projectFormat: xcode15_3   # objectVersion 63 — Xcode 15.3'ten 26.x'e kadar okunur
+```
+
+Sabitleme olmadan XcodeGen `xcode16_0` üretir ve `xcodebuild` projeyi
+"gelecekteki bir Xcode sürümüyle üretilmiş" diyerek reddeder. `xcodeVersion`
+ayarı bunu **değiştirmez**: o yalnızca `LastUpgradeCheck` damgasını etkiler,
+proje biçimini değil. CI, `project.pbxproj` içinde `objectVersion = 63`
+olduğunu ayrıca doğrular, böylece ayar bir gün düşerse hata derleme adımında
+değil hemen orada ve anlaşılır biçimde görünür.
 
 Akış üç aşamalıdır. Önce Ubuntu üzerinde `scripts/static_check.py` koşar ve
 yerelleştirme eşliğini, kaynak yapısını, `Info.plist`'i ve doküman ağacını
