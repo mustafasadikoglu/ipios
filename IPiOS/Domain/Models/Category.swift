@@ -45,3 +45,21 @@ struct Category: Identifiable, Hashable, Codable {
         self.itemCount = itemCount
     }
 }
+
+extension Category {
+
+    /// "Tümü" yapay kategorisinin kimliği.
+    ///
+    /// Sağlayıcıdan gelen bir kimlikle çakışmaması için başında ve sonunda
+    /// alt çizgi kullanılır; Xtream kategori kimlikleri sayısaldır.
+    static let allID = "__all__"
+
+    /// Listenin başına konan "Tümü" kategorisi. Gerçek bir kategori değildir;
+    /// yalnızca filtresiz görünümü temsil eder.
+    static func all(kind: CategoryKind) -> Category {
+        Category(id: allID, name: L.t("common.all"), kind: kind)
+    }
+
+    /// Bu kategori "Tümü" mü? Sayı etiketi bu durumda gösterilmez.
+    var isAll: Bool { id == Self.allID }
+}

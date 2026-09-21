@@ -31,6 +31,12 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     /// Oynatıcı katmanı; `VideoPlayerView` bu nesneyi kullanır.
     let player = AVPlayer()
 
+    /// `AVURLAsset` seçenekleri anahtarı.
+    ///
+    /// `AVURLAssetHTTPHeaderFieldsKey` Objective-C sabiti Swift'e
+    /// köprülenmediği için değeri burada tutulur; sihirli dize tek yerde kalır.
+    private static let headerFieldsKey = "AVURLAssetHTTPHeaderFieldsKey"
+
     private var currentItem: (any MediaItem)?
     private var itemStatusObservation: NSKeyValueObservation?
     private var timeObserver: Any?
@@ -92,9 +98,12 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         lastSavedPosition = savedPosition
 
         // Sağlayıcıya özel başlık gereksinimleri için ortak bir UA gönderilir.
+        //
+        // `AVURLAssetHTTPHeaderFieldsKey` Swift'e köprülenmemiş bir
+        // Objective-C sabitidir; anahtar bu yüzden dize olarak verilir.
         let asset = AVURLAsset(
             url: item.streamURL,
-            options: [AVURLAssetHTTPHeaderFieldsKey: ["User-Agent": "IPiOS/1.0 (iOS)"]]
+            options: [Self.headerFieldsKey: ["User-Agent": "IPiOS/1.0 (iOS)"]]
         )
 
         let playerItem = AVPlayerItem(asset: asset)
@@ -226,7 +235,10 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
                             ?? L.t("player.error.startFailed")
                     )
                 case .readyToPlay:
-                    if let itemDuration = item.duration.seconds, itemDuration.isFinite, itemDuration > 0 {
+                    // `duration.seconds` isteğe bağlı değil; yalnızca geçerli ve
+                    // sonlu bir değer olduğunda kullanılır (canlıda `nan` gelir).
+                    let itemDuration = item.duration.seconds
+                    if itemDuration.isFinite, itemDuration > 0 {
                         self.duration = itemDuration
                     }
                     if self.savedPosition > 0 {
@@ -315,8 +327,10 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     }
 
     private func removeObservers() {
-        if let timeObserver {
-            player.removeTimeObserver(timeObserver)
+        if let observer = timeObserver {
+            player.removeTimeObserver(observer)
+            // `removeTimeObserver` tekrar çağrılmaması için kayıt temizlenir;
+            // bu yüzden değişken `let` değil `var` olmalı.
             timeObserver = nil
         }
         if let endObserver {
