@@ -54,6 +54,44 @@ Xcode arayüzünde: `IPiOS` şemasını seçip çalıştırın. İmzalama için
 
 ---
 
+## GitHub üzerinden derleme
+
+Mac'iniz olmasa da, hatta projeye hiç dokunmadan da kodun derlendiğini
+görebilirsiniz: depoyu GitHub'a ittiğinizde `.github/workflows/ci.yml` otomatik
+olarak çalışır. GitHub'ın `macos-14` runner'ı Xcode ile birlikte gelir, yani
+derleme gerçekten Apple araç zinciriyle yapılır — bu, macOS olmayan bir
+makinede yapılabilecek en sağlam doğrulamadır.
+
+Akış üç aşamalıdır. Önce Ubuntu üzerinde `scripts/static_check.py` koşar ve
+yerelleştirme eşliğini, kaynak yapısını, `Info.plist`'i ve doküman ağacını
+denetler; burada bir hata çıkarsa pahalı macOS işi hiç başlatılmaz. Ardından
+`xcodegen generate` ile proje üretilip `xcodebuild build` ile derlenir. Son
+olarak `xcodebuild test` ile dört birim test dosyası çalıştırılır.
+
+Sonuçları deponuzun **Actions** sekmesinden görebilirsiniz; kırmızı çarpı çıkan
+bir çalışmaya tıklayıp başarısız adımın günlüğünü okumak, hatanın hangi
+dosyada olduğunu gösterir.
+
+**İmzalama gerekmez.** CI'da derleme `CODE_SIGNING_ALLOWED=NO` ile yapılır, bu
+yüzden Apple Developer hesabı, sertifika veya `DEVELOPMENT_TEAM` ayarı
+istemez. Bu ayarlar `project.yml` içine değil komut satırına verilir; yerel
+imzalamanız bozulmaz. Test cihazı olarak sabit bir simülatör adı yerine,
+runner'da kurulu olan ilk uygun cihaz seçilir.
+
+Depoyu ilk kez oluşturma:
+
+```bash
+cd ipios
+git remote add origin https://github.com/<kullanıcı>/ipios.git
+git push -u origin main
+```
+
+İş akışı `main` dalına itilen her commit'te, her pull request'te ve Actions
+sekmesindeki **Run workflow** düğmesiyle elle tetiklenir. Aynı dala üst üste
+itme yaparsanız önceki çalışma otomatik iptal edilir.
+
+---
+
 ## İlk kullanım
 
 1. Uygulama açıldığında yasal uyarı ekranı gelir; kabul edilmeden devam edilemez.
@@ -125,3 +163,16 @@ tasarım kararları için [`docs/MIMARI.md`](docs/MIMARI.md) dosyasına bakın.
 - `XMLTVDateTests.swift` — XMLTV zaman damgası ve saat dilimi dönüşümleri
 - `CoreUtilitiesTests.swift` — biçimleyiciler (süre, aralık, yüzde, dosya boyutu)
 - `LocalizationTests.swift` — anahtar eşliği, yer tutucu uyumu, tanımsız anahtar
+
+Bunlara ek olarak `scripts/static_check.py` derleyici gerektirmeyen bir denetim
+yapar ve hem CI'da hem yerelde çalışır:
+
+```bash
+python3 scripts/static_check.py
+```
+
+Betik; iki dil arasındaki anahtar eşliğini, yer tutucu uyumunu, yinelenen ve
+boş değerleri, süslü parantez dengesini, kapanmamış çok satırlı dizgeleri,
+`Info.plist` geçerliliğini ve `docs/MIMARI.md` klasör ağacının gerçek dosya
+listesiyle eşleşip eşleşmediğini kontrol eder. Sorun varsa `0` dışında bir çıkış
+kodu döndürür, böylece CI doğrudan başarısız olur.
