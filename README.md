@@ -78,12 +78,21 @@ istemez. Bu ayarlar `project.yml` içine değil komut satırına verilir; yerel
 imzalamanız bozulmaz. Test cihazı olarak sabit bir simülatör adı yerine,
 runner'da kurulu olan ilk uygun cihaz seçilir.
 
-Depoyu ilk kez oluşturma:
+Depo: <https://github.com/mustafasadikoglu/ipios>
+
+Uzak sunucu zaten tanımlıdır. İlk itme:
 
 ```bash
-cd ipios
-git remote add origin https://github.com/<kullanıcı>/ipios.git
 git push -u origin main
+```
+
+GitHub 2021'den beri parola ile itmeye izin vermez; sorulduğunda **parola yerine
+kişisel erişim jetonu (PAT)** girilir. `Settings → Developer settings →
+Personal access tokens` yolundan `repo` kapsamıyla bir jeton üretilip parola
+alanına yapıştırılır. Jetonu macOS Keychain'e kaydetmek için:
+
+```bash
+git config --global credential.helper osxkeychain
 ```
 
 İş akışı `main` dalına itilen her commit'te, her pull request'te ve Actions
