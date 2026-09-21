@@ -1,0 +1,54 @@
+# --- Xcode projesi ---
+# `IPiOS.xcodeproj` bilerek depoda tutulmaz: `project.yml` (XcodeGen) tek
+# doğruluk kaynağıdır ve proje her derlemede ondan üretilir. Böylece
+# birleştirme çakışmaları ve okunamayan pbxproj değişiklikleri oluşmaz.
+*.xcodeproj
+*.xcworkspace
+
+# --- XcodeGen çıktıları ---
+*.xcconfig
+
+# --- Derleme çıktıları ---
+build/
+DerivedData/
+*.o
+*.dSYM/
+*.app
+*.ipa
+*.xcarchive
+*.swiftmodule
+*.hmap
+*.d
+
+# --- Test sonuçları ---
+*.xcresult
+
+# --- Swift Package Manager (kullanılmıyor ama ihtimale karşı) ---
+.swiftpm/
+.build/
+Package.resolved
+
+# --- Bağımlılık yöneticileri (projede üçüncü taraf bağımlılık yok) ---
+Pods/
+Carthage/
+
+# --- macOS ---
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Editör ---
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# --- Geçici / kişisel dosyalar ---
+# Kimlik bilgisi, sağlayıcı adresi veya token içerebilecek dosyalar buraya
+# konmamalı; yanlışlıkla eklenirse diye yine de listeleniyor.
+*.local.md
+*.local.json
+secrets.plist
+secrets.xcconfig

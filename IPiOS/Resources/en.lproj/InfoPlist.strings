@@ -1,0 +1,9 @@
+/* User-facing strings that live in Info.plist.
+
+   These cannot go into `Localizable.strings`: the system reads them before
+   the app launches (for example while asking for local network permission)
+   and only consults `InfoPlist.strings`. */
+
+/* Local network permission prompt — shown when the user connects to an IPTV
+   server running on their own network. */
+"NSLocalNetworkUsageDescription" = "Local network access is needed to connect to an IPTV server on your network.";

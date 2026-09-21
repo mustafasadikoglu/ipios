@@ -1,0 +1,266 @@
+/* IPiOS — Türkçe metinler (birincil dil) */
+
+/* --- Genel --- */
+"common.ok"                     = "Tamam";
+"common.cancel"                 = "Vazgeç";
+"common.delete"                 = "Sil";
+"common.save"                   = "Kaydet";
+"common.close"                  = "Kapat";
+"common.retry"                  = "Yeniden Dene";
+"common.all"                    = "Tümü";
+"common.loading"                = "Yükleniyor…";
+"common.showAll"                = "Tümünü göster";
+/* Kategori etiketinde adın yanına eklenen içerik sayısı ("Haber · 42"). */
+"common.count.suffix"           = " · %d";
+
+/* --- İçerik türleri --- */
+"kind.live"                     = "Canlı TV";
+"kind.movie"                    = "Filmler";
+"kind.series"                   = "Diziler";
+
+/* --- Kaynak türleri --- */
+"source.kind.xtream"            = "Xtream Codes";
+"source.kind.m3u"               = "M3U / M3U8 Liste";
+
+/* --- Sekmeler --- */
+"tab.live"                      = "Canlı TV";
+"tab.movies"                    = "Filmler";
+"tab.series"                    = "Diziler";
+"tab.search"                    = "Arama";
+"tab.settings"                  = "Ayarlar";
+
+/* --- Hatalar --- */
+"error.invalidURL"              = "Sunucu adresi geçersiz.";
+"error.network"                 = "Bağlantı kurulamadı. %@";
+"error.timeout"                 = "Sunucu yanıt vermedi (zaman aşımı).";
+"error.unauthorized"            = "Kullanıcı adı veya şifre hatalı.";
+"error.notFound"                = "İstenen kaynak bulunamadı.";
+"error.server"                  = "Sunucu hatası (kod: %d).";
+"error.decoding"                = "Sunucu yanıtı okunamadı: %@";
+/* Çözümleme hatasının ayrıntısı. Ham CodingKey / tip adı kullanıcıya
+   gösterilmez; teknik ayrıntı log'a yazılır. */
+"error.decoding.field"          = "beklenen bir alan yanıtta yok";
+"error.decoding.type"           = "bir alanın türü beklenenden farklı";
+"error.decoding.empty"          = "zorunlu bir alan boş geldi";
+"error.decoding.corrupt"        = "veri bozuk";
+"error.decoding.unknown"        = "bilinmeyen çözümleme hatası";
+"error.decoding.encoding"       = "metin kodlaması tanınamadı";
+"error.sourceUnreachable"       = "Kaynağa ulaşılamıyor. Adresi ve internet bağlantınızı kontrol edin.";
+"error.playlistEmpty"           = "Liste boş görünüyor veya biçimi tanınamadı.";
+"error.playbackFailed"          = "Yayın oynatılamadı. %@";
+"error.cancelled"               = "İşlem iptal edildi.";
+"error.storage"                 = "Veri kaydedilemedi. %@";
+"error.keychain"                = "Kimlik bilgisi anahtar zincirine yazılamadı (kod: %d).";
+"error.keychain.conversion"     = "Kimlik bilgisi metne dönüştürülemedi.";
+"error.unknown"                 = "Beklenmeyen bir hata oluştu.";
+
+/* --- Biçimler --- */
+"format.duration.hoursMinutes"  = "%d sa %d dk";
+"format.duration.minutes"       = "%d dk";
+"format.duration.invalid"       = "--:--";
+/* Yayın akışındaki saat aralığı ("20:00 - 21:30"). */
+"format.timeRange"              = "%@ - %@";
+
+/* --- Dizi / bölüm --- */
+"episode.number"                = "%dx%02d";
+"episode.untitled"              = "%@ Bölüm";
+"episode.fullTitle"             = "%@ · %@";
+"season.name"                   = "%d. Sezon";
+"series.episodeCount"           = "%d bölüm";
+
+/* --- Kaynak ekleme --- */
+"addsource.title.new"           = "Kaynak Ekle";
+"addsource.title.edit"          = "Kaynağı Düzenle";
+"addsource.field.name"          = "Kaynak Adı";
+"addsource.field.kind"          = "Kaynak Türü";
+"addsource.field.server"        = "Sunucu Adresi";
+"addsource.field.server.placeholder" = "http://sunucu.com:8080";
+"addsource.field.username"      = "Kullanıcı Adı";
+"addsource.field.password"      = "Şifre";
+"addsource.field.epg"           = "EPG (XMLTV) Adresi";
+"addsource.field.epg.optional"  = "İsteğe bağlı";
+"addsource.section.connection"  = "Bağlantı Bilgileri";
+"addsource.action.test"         = "Bağlantıyı Test Et";
+"addsource.action.pickFile"     = "Dosyadan Seç";
+"addsource.action.picked"       = "Seçilen dosya: %@";
+"addsource.password.keepHint"   = "Değiştirmek istemiyorsanız boş bırakın.";
+"addsource.password.hint"       = "Şifre yalnızca bu cihazda, Keychain'de saklanır.";
+"addsource.testing"             = "Bağlantı test ediliyor…";
+"addsource.legal"               = "Bu uygulama içerik barındırmaz ve sağlamaz. Eklediğiniz yayın kaynağının yasal olduğundan yalnızca siz sorumlusunuz.";
+"addsource.file.pickError"      = "Dosya açılamadı. iCloud Drive veya Dosyalar üzerinden tekrar deneyin.";
+
+/* --- Kaynak durumu --- */
+"sourceinfo.status"             = "Durum";
+"sourceinfo.expires"            = "Bitiş";
+"sourceinfo.connections"        = "Bağlantı";
+"sourceinfo.counts"             = "İçerik";
+"sourceinfo.counts.value"       = "%d kanal · %d film · %d dizi";
+"sourceinfo.warning.expired"    = "Abonelik süresi dolmuş görünüyor. Yayın yine de çalışabilir.";
+
+/* --- Kaynaklar ekranı --- */
+"sources.empty.message"         = "Başlamak için bir Xtream Codes hesabı veya M3U liste adresi ekleyin.";
+"sources.active"                = "Aktif";
+"sources.action.setActive"      = "Aktif Yap";
+"sources.action.add"            = "Kaynak Ekle";
+"sources.delete.confirm"        = "Bu kaynak ve kayıtlı şifresi silinsin mi?";
+"sources.synced.value"          = "Son eşitleme: %@";
+
+/* --- Canlı TV --- */
+"live.empty.title"              = "Kanal bulunamadı";
+"live.empty.message"            = "Kategori değiştirmeyi veya aramayı temizlemeyi deneyin.";
+"live.badge.live"               = "CANLI";
+"live.badge.archive"            = "Arşiv";
+"live.nextItem"                 = "Sırada: %@";
+"live.search.placeholder"       = "Kanal ara";
+"live.channelCount"             = "%d kanal";
+"live.guide.title"              = "Yayın Akışı";
+"live.guide.empty"              = "Bu kanal için program bilgisi yok.";
+"live.guide.all"                = "Tüm Programlar";
+"live.guide.untitled"           = "Program bilgisi yok";
+
+/* --- Filmler --- */
+"movies.empty.title"            = "Film bulunamadı";
+"movies.empty.message"          = "Kategori değiştirmeyi veya aramayı temizlemeyi deneyin.";
+"movies.search.placeholder"     = "Film ara";
+"movies.movieCount"             = "%d film";
+"movies.section.resume"         = "İzlemeye Devam Et";
+"movies.section.favorites"      = "Favoriler";
+"movies.section.all"            = "Tüm Filmler";
+"movies.grid"                   = "Izgara";
+"movies.list"                   = "Liste";
+
+/* --- Diziler --- */
+"series.empty.title"            = "Dizi bulunamadı";
+"series.empty.message"          = "Kategori değiştirmeyi veya aramayı temizlemeyi deneyin.";
+"series.search.placeholder"     = "Dizi ara";
+"series.seriesCount"            = "%d dizi";
+"series.section.all"            = "Tüm Diziler";
+"series.section.continue"       = "İzlemeye Devam Et";
+"series.section.favorites"      = "Favoriler";
+"series.episodes"               = "Bölümler";
+"series.detail.empty.title"     = "Bölüm yok";
+"series.detail.empty.message"   = "Bu dizi için yayınlanmış bölüm bulunamadı.";
+
+/* --- Arama --- */
+"search.placeholder"            = "Kanal, film veya dizi ara";
+"search.hint"                   = "Aramak için yazmaya başlayın";
+"search.hint.detail"            = "En az iki harf girin. Sonuçlar tüm kaynaklarda aranır.";
+"search.empty.title"            = "Sonuç bulunamadı";
+"search.empty.message"          = "“%@” için eşleşen içerik yok.";
+"search.section.live"           = "Canlı TV";
+"search.section.movies"         = "Filmler";
+"search.section.series"         = "Diziler";
+"search.resultCount"            = "%d sonuç";
+"search.clear"                  = "Aramayı temizle";
+
+/* --- Favoriler --- */
+"favorites.title"               = "Favoriler";
+"favorites.empty.title"         = "Favori yok";
+"favorites.empty.message"       = "Listelerdeki yıldız simgesine dokunarak favori ekleyebilirsiniz.";
+"favorites.add"                 = "Favorilere ekle";
+"favorites.remove"              = "Favorilerden çıkar";
+"favorites.unavailable"         = "Liste yüklenince görünecek";
+
+/* --- Son izlenenler / devam --- */
+"recents.title"                 = "Son İzlenenler";
+"recents.empty"                 = "Henüz bir şey izlemediniz.";
+"recents.remaining"             = "%@ kaldı";
+"recents.needsLibrary"          = "İzleme geçmişini göstermek için içerik listesi yükleniyor…";
+
+/* --- Oynatıcı --- */
+"player.live"                   = "CANLI";
+"player.error.title"            = "Yayın açılamadı";
+"player.error.retry"            = "Tekrar Dene";
+"player.error.unknown"          = "Bilinmeyen bir nedenle yayın açılamadı.";
+"player.error.startFailed"      = "Oynatma başlatılamadı.";
+"player.error.interrupted"      = "Yayın kesildi.";
+"player.resumed"                = "Kaldığınız yerden devam ediliyor";
+"player.buffering"              = "Tamponlanıyor…";
+"player.action.back"            = "Geri";
+"player.action.pip"             = "Küçük Pencere";
+"player.action.fullscreen"      = "Tam Ekran";
+"player.action.exitFullscreen"  = "Tam Ekrandan Çık";
+"player.action.playPause"       = "Oynat / Duraklat";
+"player.action.forward"         = "10 saniye ileri";
+"player.action.backward"        = "10 saniye geri";
+"player.error.tsUnsupported"    = "Bu yayın MPEG-TS biçiminde ve doğrudan oynatılamıyor. Kaynak sağlayıcınızdan HLS (.m3u8) çıkışı isteyin.";
+"player.hint.tap"               = "Kontroller için dokunun";
+
+/* --- Ayarlar --- */
+"settings.section.sources"      = "Kaynaklar";
+"settings.sources.footer"       = "Düzenlemek için satıra dokunun; aktif yapmak veya silmek için satırı sola kaydırın.";
+"settings.section.playback"     = "Oynatma";
+"settings.section.data"         = "Veriler";
+"settings.section.about"        = "Hakkında";
+"settings.autoplay"             = "Son kanalla başla";
+"settings.autoplay.footer"      = "Uygulama açıldığında en son izlenen kanalı hazırlar.";
+"settings.fullscreenOnRotate"   = "Yatayda tam ekran";
+"settings.fullscreenOnRotate.footer" = "Cihaz yatay çevrildiğinde oynatıcı tam ekrana geçer.";
+"settings.clearRecents"         = "İzleme Geçmişini Temizle";
+"settings.clearPositions"       = "Kaydedilen Konumları Temizle";
+"settings.clearFavorites"       = "Favorileri Temizle";
+"settings.clearRecents.confirm"  = "İzleme geçmişi silinsin mi?";
+"settings.clearPositions.confirm" = "Kaydedilen izleme konumları silinsin mi?";
+"settings.clearFavorites.confirm" = "Tüm favoriler silinsin mi?";
+"settings.cleared"              = "Temizlendi";
+"settings.version"              = "Sürüm";
+/* Sürüm satırındaki değer: "1.0 (12)" — sürüm numarası ve derleme numarası. */
+"settings.version.value"        = "%@ (%@)";
+"settings.legal"                = "Yasal Uyarı";
+"settings.legal.footer"         = "IPiOS hiçbir yayın sağlayıcısıyla bağlantılı değildir ve hiçbir içerikten sorumlu tutulamaz.";
+"settings.legal.body"           = "IPiOS bir oynatıcıdır; herhangi bir yayın içeriği barındırmaz, sunmaz veya dağıtmaz. Uygulamaya eklediğiniz kaynakların ve bunlar üzerinden erişilen içeriklerin yasallığı tamamen kullanıcının sorumluluğundadır. Telif hakkıyla korunan materyali izinsiz izlemek yasalara aykırı olabilir.";
+
+/* --- Açılış --- */
+"startup.error"                 = "Kaynak listeniz okunamadı. Verileriniz silinmedi; lütfen tekrar deneyin.";
+"startup.retry"                 = "Tekrar Dene";
+
+/* --- Sunucudan ad gelmediğinde kullanılan yedek adlar ---
+   Xtream panelleri bazı kayıtlar için ad alanını boş bırakır. Kimliği
+   göstermek, listede adsız satır kalmaktan iyidir; ancak bu adlar da
+   kullanıcıya göründüğü için yerelleştirilmelidir. */
+"fallback.category"             = "Kategori %@";
+"fallback.channel"              = "Kanal %@";
+"fallback.movie"                = "Film %@";
+"fallback.series"               = "Dizi %@";
+
+/* --- İlk açılış / yasal --- */
+"legal.title"                   = "Yasal Uyarı";
+"legal.intro"                   = "Devam etmeden önce lütfen okuyun.";
+"legal.body"                    = "IPiOS yalnızca bir oynatıcıdır. Uygulama hiçbir yayın içeriği barındırmaz, sağlamaz, aramaz veya dağıtmaz.\n\nUygulamaya eklediğiniz kaynaklar (Xtream Codes hesabı veya M3U liste adresi) yalnızca sizin cihazınızda saklanır ve üçüncü taraflarla paylaşılmaz.\n\nEriştiğiniz yayınların ve içeriklerin yasallığından tamamen siz sorumlusunuz. Telif hakkıyla korunan materyali izinsiz izlemek veya dağıtmak yasalara aykırı olabilir. Yalnızca yetkili olduğunuz kaynakları kullanın.";
+"legal.accept"                  = "Okudum, kabul ediyorum";
+"legal.decline"                 = "Kabul etmiyorum";
+
+/* --- Kaynak yok ekranı --- */
+"onboarding.title"              = "Hoş geldiniz";
+"onboarding.subtitle"           = "Başlamak için bir yayın kaynağı ekleyin.";
+"onboarding.action.add"         = "Kaynak Ekle";
+"onboarding.note"               = "Kaynağınız yoksa sağlayıcınızdan Xtream Codes bilgilerini veya M3U liste adresini isteyin.";
+
+/* --- Önizleme (Xcode Canvas) ---
+   Örnek veriler de kurala uyar: önizleme ekranda gerçek bir arayüz gösterir,
+   dolayısıyla oradaki metinler de kullanıcıya görünen metinlerdir ve koda
+   gömülemez. */
+"preview.section.models"        = "Modeller";
+"preview.section.empty"         = "Boş Durum";
+"preview.section.loading"       = "Yükleniyor";
+"preview.section.error"         = "Hata Durumu";
+"preview.section.categories"    = "Kategoriler";
+"preview.section.cards"         = "Kartlar";
+"preview.empty.title"           = "Kanal bulunamadı";
+"preview.empty.message"         = "Kategori değiştirmeyi veya aramayı temizlemeyi deneyin.";
+"preview.error.message"         = "Bağlantı kurulamadı. Sunucu yanıt vermiyor.";
+"preview.category.live"         = "Ulusal Kanallar";
+"preview.category.movie"        = "Yerli Filmler";
+"preview.category.series"       = "Popüler Diziler";
+"preview.channel.1"             = "TRT Haber";
+"preview.channel.2"             = "Spor Arena";
+"preview.channel.3"             = "Belgesel Kuşağı";
+"preview.movie.1"               = "Örnek Film";
+"preview.movie.plot"            = "Kısa bir konu özeti burada yer alır.";
+"preview.movie.genre"           = "Aksiyon, Macera";
+"preview.series.1"              = "Örnek Dizi";
+"preview.series.plot"           = "Dizi konusu burada yer alır.";
+"preview.epg.1"                 = "Ana Haber Bülteni";
+"preview.epg.1.detail"          = "Günün öne çıkan gelişmeleri.";
+"preview.epg.2"                 = "Belgesel Kuşağı";
+"preview.epg.2.detail"          = "Doğa belgeseli.";

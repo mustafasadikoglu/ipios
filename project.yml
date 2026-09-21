@@ -1,0 +1,62 @@
+name: IPiOS
+options:
+  bundleIdPrefix: com.mustafa.ipios
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  IPiOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: IPiOS
+        excludes:
+          - "Resources/Info.plist"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mustafa.ipios
+        PRODUCT_NAME: IPiOS
+        INFOPLIST_FILE: IPiOS/Resources/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_EMIT_LOC_STRINGS: YES
+
+  IPiosTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: IPiosTests
+    dependencies:
+      - target: IPiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mustafa.ipios.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  IPiOS:
+    build:
+      targets:
+        IPiOS: all
+        IPiosTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - IPiosTests

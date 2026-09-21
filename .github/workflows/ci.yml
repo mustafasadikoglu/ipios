@@ -1,0 +1,160 @@
+name: CI
+
+# Ne zaman çalışır: main'e itilen her commit'te, her pull request'te ve
+# Actions sekmesinden elle başlatıldığında.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Aynı dalda üst üste itme olursa eski çalışmayı iptal et — macOS dakikaları
+# ücretlidir, gereksiz koşuyu sonuna kadar götürmenin anlamı yok.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------------
+  # 1) Statik denetim — Ubuntu'da saniyeler sürer, macOS kuyruğunu beklemez.
+  #    Yerelleştirme eşliği, kaynak yapısı, plist ve doküman ağacı burada
+  #    kontrol edilir; hata varsa pahalı macOS işi hiç başlatılmaz.
+  # ------------------------------------------------------------------
+  static-checks:
+    name: Statik denetim
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Statik denetimi çalıştır
+        env:
+          CHECK_REPORT: static-check.txt
+        run: python3 scripts/static_check.py
+
+      - name: Raporu yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-check-report
+          path: static-check.txt
+          if-no-files-found: ignore
+
+  # ------------------------------------------------------------------
+  # 2) Gerçek derleme. macOS runner'ı Xcode ile birlikte gelir.
+  #    Belirli bir simülatör adı yerine "generic/platform=iOS Simulator"
+  #    kullanılır: cihaz adları runner imajıyla değişir, bu hedef değişmez.
+  # ------------------------------------------------------------------
+  build:
+    name: Derleme (iOS Simulator)
+    runs-on: macos-14
+    needs: static-checks
+    env:
+      # İmzasız derleme. Bu üç ayar olmadan xcodebuild bir geliştirici
+      # sertifikası arar ve CI'da başarısız olur. Ayarlar komut satırından
+      # verilir, `project.yml` içine yazılmaz; böylece yerel imzalama bozulmaz.
+      SIGNING: CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode sürümü ve kullanılabilir simülatörler
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available | sed -n '1,40p'
+
+      - name: XcodeGen kur
+        run: brew install xcodegen
+
+      - name: Xcode projesini üret
+        run: xcodegen generate
+
+      - name: Üretilen projeyi doğrula
+        run: |
+          test -d IPiOS.xcodeproj || { echo "::error::IPiOS.xcodeproj üretilmedi"; exit 1; }
+          xcodebuild -list -project IPiOS.xcodeproj
+
+      - name: Derle
+        run: |
+          xcodebuild -project IPiOS.xcodeproj \
+            -scheme IPiOS \
+            -destination 'generic/platform=iOS Simulator' \
+            $SIGNING \
+            build
+
+      - name: Hata ayıklama için Xcode sürümünü kaydet
+        if: always()
+        run: xcodebuild -version > xcode-version.txt
+
+      - name: Xcode sürümünü yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-version
+          path: xcode-version.txt
+          if-no-files-found: ignore
+
+  # ------------------------------------------------------------------
+  # 3) Birim testleri. Simülatör adı sabit yazılmaz; runner'da kurulu
+  #    cihazlar arasından sırayla denenip ilk bulunan kullanılır. Böylece
+  #    Apple imajı güncelleyip bir cihazı kaldırdığında iş kırılmaz.
+  # ------------------------------------------------------------------
+  test:
+    name: Birim testleri
+    runs-on: macos-14
+    needs: build
+    env:
+      SIGNING: CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: XcodeGen kur
+        run: brew install xcodegen
+
+      - name: Xcode projesini üret
+        run: xcodegen generate
+
+      - name: Testleri çalıştır
+        run: |
+          set -euo pipefail
+
+          # Tercih sırası: önce iPhone, sonra iPad. Kurulu olan ilk cihaz seçilir.
+          ADAYLAR=(
+            "iPhone 16" "iPhone 15" "iPhone 14" "iPhone SE (3rd generation)"
+            "iPad Pro 11-inch (M4)" "iPad Pro (11-inch) (4th generation)"
+            "iPad Air (5th generation)" "iPad (10th generation)"
+          )
+
+          SECILEN=""
+          for ad in "${ADAYLAR[@]}"; do
+            if xcrun simctl list devices available | grep -qF "$ad ("; then
+              SECILEN="$ad"
+              break
+            fi
+          done
+
+          if [ -z "$SECILEN" ]; then
+            echo "::error::Kullanılabilir simülatör bulunamadı"
+            xcrun simctl list devices available
+            exit 1
+          fi
+
+          echo "Seçilen simülatör: $SECILEN"
+          xcodebuild -project IPiOS.xcodeproj \
+            -scheme IPiOS \
+            -destination "platform=iOS Simulator,name=$SECILEN" \
+            $SIGNING \
+            test
+
+      - name: Test sonuçlarını yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            **/*.xcresult
+            xcode-version.txt
+          if-no-files-found: ignore
+          retention-days: 7

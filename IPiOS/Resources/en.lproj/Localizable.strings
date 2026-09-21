@@ -1,0 +1,265 @@
+/* IPiOS — English strings (secondary language) */
+
+/* --- General --- */
+"common.ok"                     = "OK";
+"common.cancel"                 = "Cancel";
+"common.delete"                 = "Delete";
+"common.save"                   = "Save";
+"common.close"                  = "Close";
+"common.retry"                  = "Try Again";
+"common.all"                    = "All";
+"common.loading"                = "Loading…";
+"common.showAll"                = "Show all";
+/* Content count appended to a category label ("News · 42"). */
+"common.count.suffix"           = " · %d";
+
+/* --- Content kinds --- */
+"kind.live"                     = "Live TV";
+"kind.movie"                    = "Movies";
+"kind.series"                   = "Series";
+
+/* --- Source kinds --- */
+"source.kind.xtream"            = "Xtream Codes";
+"source.kind.m3u"               = "M3U / M3U8 Playlist";
+
+/* --- Tabs --- */
+"tab.live"                      = "Live TV";
+"tab.movies"                    = "Movies";
+"tab.series"                    = "Series";
+"tab.search"                    = "Search";
+"tab.settings"                  = "Settings";
+
+/* --- Errors --- */
+"error.invalidURL"              = "The server address is invalid.";
+"error.network"                 = "Could not connect. %@";
+"error.timeout"                 = "The server did not respond (timed out).";
+"error.unauthorized"            = "Incorrect username or password.";
+"error.notFound"                = "The requested resource was not found.";
+"error.server"                  = "Server error (code: %d).";
+"error.decoding"                = "The server response could not be read: %@";
+/* Detail of a decoding failure. Raw CodingKeys / type names are never shown
+   to the user; the technical detail goes to the log instead. */
+"error.decoding.field"          = "an expected field is missing from the response";
+"error.decoding.type"           = "a field has an unexpected type";
+"error.decoding.empty"          = "a required field came back empty";
+"error.decoding.corrupt"        = "the data is corrupt";
+"error.decoding.unknown"        = "unknown decoding error";
+"error.decoding.encoding"       = "the text encoding could not be recognized";
+"error.sourceUnreachable"       = "The source is unreachable. Check the address and your internet connection.";
+"error.playlistEmpty"           = "The playlist looks empty or its format was not recognized.";
+"error.playbackFailed"          = "The stream could not be played. %@";
+"error.cancelled"               = "The operation was cancelled.";
+"error.storage"                 = "Data could not be saved. %@";
+"error.keychain"                = "The credential could not be written to the keychain (code: %d).";
+"error.keychain.conversion"     = "The credential could not be converted to text.";
+"error.unknown"                 = "An unexpected error occurred.";
+
+/* --- Formats --- */
+"format.duration.hoursMinutes"  = "%dh %dm";
+"format.duration.minutes"       = "%d min";
+"format.duration.invalid"       = "--:--";
+/* Time range in the TV guide ("8:00 PM - 9:30 PM"). */
+"format.timeRange"              = "%@ - %@";
+
+/* --- Series / episode --- */
+"episode.number"                = "%dx%02d";
+"episode.untitled"              = "%@ Episode";
+"episode.fullTitle"             = "%@ · %@";
+"season.name"                   = "Season %d";
+"series.episodeCount"           = "%d episodes";
+
+/* --- Add source --- */
+"addsource.title.new"           = "Add Source";
+"addsource.title.edit"          = "Edit Source";
+"addsource.field.name"          = "Source Name";
+"addsource.field.kind"          = "Source Type";
+"addsource.field.server"        = "Server Address";
+"addsource.field.server.placeholder" = "http://server.com:8080";
+"addsource.field.username"      = "Username";
+"addsource.field.password"      = "Password";
+"addsource.field.epg"           = "EPG (XMLTV) URL";
+"addsource.field.epg.optional"  = "Optional";
+"addsource.section.connection"  = "Connection Details";
+"addsource.action.test"         = "Test Connection";
+"addsource.action.pickFile"     = "Choose File";
+"addsource.action.picked"       = "Selected file: %@";
+"addsource.password.keepHint"   = "Leave empty to keep the current password.";
+"addsource.password.hint"       = "The password is stored only on this device, in the Keychain.";
+"addsource.testing"             = "Testing connection…";
+"addsource.legal"               = "This app hosts and provides no content. You alone are responsible for the legality of the stream source you add.";
+"addsource.file.pickError"      = "The file could not be opened. Try again via iCloud Drive or Files.";
+
+/* --- Source info --- */
+"sourceinfo.status"             = "Status";
+"sourceinfo.expires"            = "Expires";
+"sourceinfo.connections"        = "Connections";
+"sourceinfo.counts"             = "Content";
+"sourceinfo.counts.value"       = "%d channels · %d movies · %d series";
+"sourceinfo.warning.expired"    = "The subscription appears to be expired. The stream may still work.";
+
+/* --- Sources screen --- */
+"sources.empty.message"         = "Add an Xtream Codes account or an M3U playlist URL to get started.";
+"sources.active"                = "Active";
+"sources.action.setActive"      = "Set Active";
+"sources.action.add"            = "Add Source";
+"sources.delete.confirm"        = "Delete this source and its saved password?";
+"sources.synced.value"          = "Last sync: %@";
+
+/* --- Live TV --- */
+"live.empty.title"              = "No channels found";
+"live.empty.message"            = "Try changing the category or clearing the search.";
+"live.badge.live"               = "LIVE";
+"live.badge.archive"            = "Archive";
+"live.nextItem"                 = "Next: %@";
+"live.search.placeholder"       = "Search channels";
+"live.channelCount"             = "%d channels";
+"live.guide.title"              = "TV Guide";
+"live.guide.empty"              = "No programme information for this channel.";
+"live.guide.all"                = "All Programmes";
+"live.guide.untitled"           = "No programme information";
+
+/* --- Movies --- */
+"movies.empty.title"            = "No movies found";
+"movies.empty.message"          = "Try changing the category or clearing the search.";
+"movies.search.placeholder"     = "Search movies";
+"movies.movieCount"             = "%d movies";
+"movies.section.resume"         = "Continue Watching";
+"movies.section.favorites"      = "Favorites";
+"movies.section.all"            = "All Movies";
+"movies.grid"                   = "Grid";
+"movies.list"                   = "List";
+
+/* --- Series --- */
+"series.empty.title"            = "No series found";
+"series.empty.message"          = "Try changing the category or clearing the search.";
+"series.search.placeholder"     = "Search series";
+"series.seriesCount"            = "%d series";
+"series.section.all"            = "All Series";
+"series.section.continue"       = "Continue Watching";
+"series.section.favorites"      = "Favorites";
+"series.episodes"               = "Episodes";
+"series.detail.empty.title"     = "No episodes";
+"series.detail.empty.message"   = "No published episodes were found for this series.";
+
+/* --- Search --- */
+"search.placeholder"            = "Search channels, movies or series";
+"search.hint"                   = "Start typing to search";
+"search.hint.detail"            = "Enter at least two letters. Results cover all loaded content.";
+"search.empty.title"            = "No results";
+"search.empty.message"          = "Nothing matches “%@”.";
+"search.section.live"           = "Live TV";
+"search.section.movies"         = "Movies";
+"search.section.series"         = "Series";
+"search.resultCount"            = "%d results";
+"search.clear"                  = "Clear search";
+
+/* --- Favorites --- */
+"favorites.title"               = "Favorites";
+"favorites.empty.title"         = "No favorites";
+"favorites.empty.message"       = "Tap the star icon in any list to add a favorite.";
+"favorites.add"                 = "Add to favorites";
+"favorites.remove"              = "Remove from favorites";
+"favorites.unavailable"         = "Will appear once the list loads";
+
+/* --- Recents / resume --- */
+"recents.title"                 = "Recently Watched";
+"recents.empty"                 = "You haven't watched anything yet.";
+"recents.remaining"             = "%@ left";
+"recents.needsLibrary"          = "Loading the content list to show your history…";
+
+/* --- Player --- */
+"player.live"                   = "LIVE";
+"player.error.title"            = "Stream could not be opened";
+"player.error.retry"            = "Try Again";
+"player.error.unknown"          = "The stream could not be opened for an unknown reason.";
+"player.error.startFailed"      = "Playback could not be started.";
+"player.error.interrupted"      = "The stream was interrupted.";
+"player.resumed"                = "Resuming from where you left off";
+"player.buffering"              = "Buffering…";
+"player.action.back"            = "Back";
+"player.action.pip"             = "Picture in Picture";
+"player.action.fullscreen"      = "Full Screen";
+"player.action.exitFullscreen"  = "Exit Full Screen";
+"player.action.playPause"       = "Play / Pause";
+"player.action.forward"         = "Skip 10 seconds forward";
+"player.action.backward"        = "Skip 10 seconds back";
+"player.error.tsUnsupported"    = "This stream is MPEG-TS and cannot be played directly. Ask your provider for an HLS (.m3u8) output.";
+"player.hint.tap"               = "Tap to show controls";
+
+/* --- Settings --- */
+"settings.section.sources"      = "Sources";
+"settings.sources.footer"       = "Tap a row to edit; swipe left to make it active or delete it.";
+"settings.section.playback"     = "Playback";
+"settings.section.data"         = "Data";
+"settings.section.about"        = "About";
+"settings.autoplay"             = "Start with last channel";
+"settings.autoplay.footer"      = "Prepares the most recently watched channel when the app opens.";
+"settings.fullscreenOnRotate"   = "Full screen in landscape";
+"settings.fullscreenOnRotate.footer" = "Switches the player to full screen when the device is rotated to landscape.";
+"settings.clearRecents"         = "Clear Watch History";
+"settings.clearPositions"       = "Clear Saved Positions";
+"settings.clearFavorites"       = "Clear Favorites";
+"settings.clearRecents.confirm"  = "Clear the watch history?";
+"settings.clearPositions.confirm" = "Clear all saved playback positions?";
+"settings.clearFavorites.confirm" = "Remove all favorites?";
+"settings.cleared"              = "Cleared";
+"settings.version"              = "Version";
+/* Version row value: "1.0 (12)" — marketing version and build number. */
+"settings.version.value"        = "%@ (%@)";
+"settings.legal"                = "Legal Notice";
+"settings.legal.footer"         = "IPiOS is not affiliated with any broadcast provider and cannot be held responsible for any content.";
+"settings.legal.body"           = "IPiOS is a player; it does not host, provide or distribute any broadcast content. The legality of the sources you add and of the content accessed through them is entirely your responsibility. Watching copyrighted material without permission may be unlawful.";
+
+/* --- First launch / legal --- */
+"legal.title"                   = "Legal Notice";
+"legal.intro"                   = "Please read before continuing.";
+"legal.body"                    = "IPiOS is only a player. The app does not host, provide, search for or distribute any broadcast content.\n\nThe sources you add (an Xtream Codes account or an M3U playlist URL) are stored only on your device and are never shared with third parties.\n\nYou are entirely responsible for the legality of the streams and content you access. Watching or distributing copyrighted material without permission may be unlawful. Use only sources you are authorized to use.";
+"legal.accept"                  = "I have read and accept";
+"legal.decline"                 = "I do not accept";
+
+/* --- No source screen --- */
+"onboarding.title"              = "Welcome";
+"onboarding.subtitle"           = "Add a stream source to get started.";
+"onboarding.action.add"         = "Add Source";
+"onboarding.note"               = "If you don't have a source, ask your provider for Xtream Codes credentials or an M3U playlist URL.";
+
+/* --- Startup --- */
+"startup.error"                 = "Your source list could not be read. Your data has not been deleted; please try again.";
+"startup.retry"                 = "Try Again";
+
+/* --- Fallback names used when the server omits a name ---
+   Xtream panels leave the name field empty for some records. Showing the ID
+   is better than an unnamed row, but these strings are user-facing too and
+   therefore must be localized. */
+"fallback.category"             = "Category %@";
+"fallback.channel"              = "Channel %@";
+"fallback.movie"                = "Movie %@";
+"fallback.series"               = "Series %@";
+
+/* --- Previews (Xcode Canvas) ---
+   Sample data follows the same rule: a preview renders a real interface, so
+   its text is user-facing text and cannot be hard-coded. */
+"preview.section.models"        = "Models";
+"preview.section.empty"         = "Empty State";
+"preview.section.loading"       = "Loading";
+"preview.section.error"         = "Error State";
+"preview.section.categories"    = "Categories";
+"preview.section.cards"         = "Cards";
+"preview.empty.title"           = "No channels found";
+"preview.empty.message"         = "Try changing the category or clearing the search.";
+"preview.error.message"         = "Could not connect. The server is not responding.";
+"preview.category.live"         = "National Channels";
+"preview.category.movie"        = "Local Movies";
+"preview.category.series"       = "Popular Series";
+"preview.channel.1"             = "TRT News";
+"preview.channel.2"             = "Sports Arena";
+"preview.channel.3"             = "Documentary Hour";
+"preview.movie.1"               = "Sample Movie";
+"preview.movie.plot"            = "A short plot summary goes here.";
+"preview.movie.genre"           = "Action, Adventure";
+"preview.series.1"              = "Sample Series";
+"preview.series.plot"           = "The series plot goes here.";
+"preview.epg.1"                 = "Main News Bulletin";
+"preview.epg.1.detail"          = "The day's highlights.";
+"preview.epg.2"                 = "Documentary Hour";
+"preview.epg.2.detail"          = "A nature documentary.";

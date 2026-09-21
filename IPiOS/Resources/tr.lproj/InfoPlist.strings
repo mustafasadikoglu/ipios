@@ -1,0 +1,9 @@
+/* Info.plist içindeki kullanıcıya görünen metinler.
+
+   Bunlar `Localizable.strings` içine konulamaz: sistem, uygulama daha
+   başlamadan (örneğin yerel ağ izni sorulurken) bu metinleri okur ve
+   yalnızca `InfoPlist.strings` dosyasına bakar. */
+
+/* Yerel ağ izni istemi — kullanıcı kendi ağındaki bir IPTV sunucusuna
+   bağlanırken gösterilir. */
+"NSLocalNetworkUsageDescription" = "Aynı ağdaki IPTV sunucunuza bağlanabilmek için yerel ağ erişimi gerekiyor.";
