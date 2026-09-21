@@ -38,14 +38,19 @@ final class SeriesDetailViewModel: ObservableObject {
         L.f("series.episodeCount", seasons.reduce(0) { $0 + $1.episodes.count })
     }
 
+    /// Dizinin favori durumu.
+    ///
+    /// `Series` oynatılabilir bir öğe değildir ve bu yüzden `MediaItem`'a
+    /// uymaz; oynatılabilen şey bölümlerdir (`Episode`). Favori deposunda
+    /// diziler `MediaReference` ile temsil edilir.
     var isFavorite: Bool {
-        environment.favorites.isFavorite(series)
+        environment.favorites.isFavorite(MediaReference(series: series))
     }
 
     func toggleFavorite() {
-        let series = self.series
+        let reference = MediaReference(series: series)
         let favorites = environment.favorites
-        Task { await favorites.toggle(series) }
+        Task { await favorites.toggle(reference) }
     }
 
     // MARK: - Yükleme

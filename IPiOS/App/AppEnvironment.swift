@@ -26,13 +26,27 @@ final class AppEnvironment: ObservableObject {
 
     private var sourceObservation: AnyCancellable?
 
+    /// Bağımlılıklar verilmezse varsayılan örnekler burada üretilir.
+    ///
+    /// Varsayılan argüman olarak `SourcesRepository()` yazmak cazip görünür
+    /// ama o ifadeler ana aktöre izole tipleri kurar ve varsayılan argümanlar
+    /// ana aktör dışında değerlendirilebilir; bu da "call to main
+    /// actor-isolated initializer in a synchronous nonisolated context"
+    /// hatasına yol açar. `nil` varsayıp örnekleri gövdede kurmak bu sorunu
+    /// tümüyle ortadan kaldırır.
     init(
-        sources: SourcesRepository = SourcesRepository(),
-        favorites: FavoritesRepository = FavoritesRepository(),
-        recents: RecentsRepository = RecentsRepository(),
-        library: ContentLibrary = ContentLibrary(),
-        settings: AppSettings = AppSettings()
+        sources: SourcesRepository? = nil,
+        favorites: FavoritesRepository? = nil,
+        recents: RecentsRepository? = nil,
+        library: ContentLibrary? = nil,
+        settings: AppSettings? = nil
     ) {
+        let sources = sources ?? SourcesRepository()
+        let favorites = favorites ?? FavoritesRepository()
+        let recents = recents ?? RecentsRepository()
+        let library = library ?? ContentLibrary()
+        let settings = settings ?? AppSettings()
+
         self.sources = sources
         self.favorites = favorites
         self.recents = recents

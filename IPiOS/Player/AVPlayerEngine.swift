@@ -31,7 +31,7 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     /// Oynatıcı katmanı; `VideoPlayerView` bu nesneyi kullanır.
     let player = AVPlayer()
 
-    private var currentItem: MediaItem?
+    private var currentItem: (any MediaItem)?
     private var itemStatusObservation: NSKeyValueObservation?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
@@ -68,7 +68,7 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
 
     // MARK: - Yükleme
 
-    func load(_ item: MediaItem, startAt: Double? = nil) async {
+    func load(_ item: any MediaItem, startAt: Double? = nil) async {
         stop()
 
         currentItem = item
@@ -337,7 +337,7 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
 
     // MARK: - Yardımcılar
 
-    private func resumePosition(for item: MediaItem) -> Double? {
+    private func resumePosition(for item: any MediaItem) -> Double? {
         recents?.position(for: item)?.seconds
     }
 

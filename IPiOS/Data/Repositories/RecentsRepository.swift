@@ -56,7 +56,7 @@ final class RecentsRepository: ObservableObject {
 
     // MARK: - Son izlenenler
 
-    func record(_ item: MediaItem) async {
+    func record(_ item: any MediaItem) async {
         let key = item.stableKey
         recents.removeAll { $0.stableKey == key }
         recents.insert(MediaReference(item: item), at: 0)
@@ -73,12 +73,12 @@ final class RecentsRepository: ObservableObject {
 
     // MARK: - İzleme konumu
 
-    func position(for item: MediaItem) -> Position? {
+    func position(for item: any MediaItem) -> Position? {
         let position = positions[item.stableKey]
         return position?.isResumable == true ? position : nil
     }
 
-    func savePosition(for item: MediaItem, seconds: Double, duration: Double?) async {
+    func savePosition(for item: any MediaItem, seconds: Double, duration: Double?) async {
         guard seconds.isFinite, seconds >= 0 else { return }
         positions[item.stableKey] = Position(
             stableKey: item.stableKey,
@@ -89,7 +89,7 @@ final class RecentsRepository: ObservableObject {
         await persistPositions()
     }
 
-    func clearPosition(for item: MediaItem) async {
+    func clearPosition(for item: any MediaItem) async {
         positions.removeValue(forKey: item.stableKey)
         await persistPositions()
     }

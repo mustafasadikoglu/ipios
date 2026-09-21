@@ -119,7 +119,8 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
                 categoryID: catID,
                 categoryName: catID.flatMap { nameByID[$0] },
                 plot: dto.plot?.nilIfEmpty,
-                year: dto.year?.nonEmpty ?? dto.releaseDate?.nonEmpty.map { String($0.prefix(4)) },
+                year: dto.year?.stringValue.nilIfEmpty
+                    ?? dto.releaseDate?.nilIfEmpty.map { String($0.prefix(4)) },
                 durationSeconds: Self.parseDuration(dto.duration?.nonEmpty),
                 rating: dto.rating?.nonEmpty,
                 genre: dto.genre?.nilIfEmpty,

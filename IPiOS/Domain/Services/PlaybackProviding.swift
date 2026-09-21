@@ -39,7 +39,7 @@ protocol PlaybackProviding: AnyObject {
 
     /// Oynatmayı başlatır.
     /// - Parameter startAt: VOD/dizi için başlangıç saniyesi.
-    func load(_ item: MediaItem, startAt: Double?) async
+    func load(_ item: any MediaItem, startAt: Double?) async
 
     func play()
     func pause()

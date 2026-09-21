@@ -30,7 +30,7 @@ final class FavoritesRepository: ObservableObject {
 
     // MARK: - Sorgular
 
-    func isFavorite(_ item: MediaItem) -> Bool {
+    func isFavorite(_ item: any MediaItem) -> Bool {
         index.contains(item.stableKey)
     }
 
@@ -55,12 +55,20 @@ final class FavoritesRepository: ObservableObject {
         await persist()
     }
 
-    func toggle(_ item: MediaItem) async {
-        let key = item.stableKey
+    func toggle(_ item: any MediaItem) async {
+        await toggle(MediaReference(item: item))
+    }
+
+    /// Favori durumunu hazır bir kayıt üzerinden değiştirir.
+    ///
+    /// `MediaItem`'a uymayan kayıtlar (ör. dizi) için ayrı bir yol gerekir;
+    /// mantık tek yerde kalsın diye `MediaItem` sürümü de buraya devreder.
+    func toggle(_ reference: MediaReference) async {
+        let key = reference.stableKey
         if index.contains(key) {
             favorites.removeAll { $0.stableKey == key }
         } else {
-            favorites.insert(MediaReference(item: item), at: 0)
+            favorites.insert(reference, at: 0)
         }
         rebuildIndex()
         await persist()

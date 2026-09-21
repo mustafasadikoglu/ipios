@@ -62,6 +62,22 @@ struct MediaReference: Identifiable, Hashable, Codable {
         )
     }
 
+    /// Oynatılamayan üst düzey kayıtlar için (ör. dizi).
+    ///
+    /// `Series` bilerek `MediaItem`'a uymaz: oynatılabilen şey bölümlerdir.
+    /// Buna karşın dizinin kendisi favorilere eklenebildiği için kaydı
+    /// üretilebilmelidir.
+    init(series: Series, timestamp: Date = Date()) {
+        self.init(
+            id: series.id,
+            sourceID: series.sourceID,
+            kind: .series,
+            title: series.title,
+            imageURLString: series.imageURL?.absoluteString,
+            timestamp: timestamp
+        )
+    }
+
     var imageURL: URL? {
         imageURLString.flatMap(URL.init(string:))
     }
