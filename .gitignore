@@ -50,6 +50,10 @@ Carthage/
 .idea/
 .vscode/
 
+# --- Python (doğrulama betikleri) ---
+__pycache__/
+*.pyc
+
 # --- Geçici / kişisel dosyalar ---
 # Kimlik bilgisi, sağlayıcı adresi veya token içerebilecek dosyalar buraya
 # konmamalı; yanlışlıkla eklenirse diye yine de listeleniyor.
