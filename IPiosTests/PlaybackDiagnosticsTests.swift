@@ -352,9 +352,15 @@ final class PlaybackDiagnosticsTests: XCTestCase {
 
     /// Yazdırılamayan baytlar çöp karakter olarak sızmamalı; teşhis satırı
     /// terminalde ve hata raporunda okunabilir kalmalıdır.
+    ///
+    /// Beklenen uzunluk **dört**: `fourCC` her zaman dört baytı çözer, bayt
+    /// başına bir karakter üretir. İlk yazımda üç `?` beklenmişti ve test
+    /// düşmüştü — derleme bozuk olduğu için test o güne kadar hiç
+    /// çalışmamıştı, bu yüzden hata ancak CI derlemesi düzelince göründü.
     func testFourCCSanitizesNonPrintableBytes() {
         let decoded = PlaybackDiagnostics.fourCC(0x0000_0001)
-        XCTAssertEqual(decoded, "???")
+        XCTAssertEqual(decoded, "????")
+        XCTAssertEqual(decoded.count, 4, "dört bayt, dört karakter")
         XCTAssertFalse(decoded.contains("\u{0}"))
     }
 
