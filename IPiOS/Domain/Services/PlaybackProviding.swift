@@ -11,6 +11,34 @@ enum PlaybackState: Equatable, Sendable {
     case finished
 }
 
+/// Durum sorguları.
+///
+/// **Neden burada, motorda değil:** bu uzantı bir zamanlar `AVPlayerEngine`
+/// dosyasının sonunda duruyordu ve motor libvlc'ye taşınırken dosyayla birlikte
+/// silindi. Sonuç derleme hatasıydı — ama daha önemlisi, doğru yeri burasıdır:
+/// bu sorgular `PlaybackState`'in kendisiyle ilgilidir, onu üreten motorla
+/// değil. Arayüz ve görünüm katmanı bunları kullanır ve motor değişse bile
+/// anlamları aynı kalır.
+extension PlaybackState {
+    var isPlaying: Bool {
+        if case .playing = self { return true }
+        return false
+    }
+
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+
+    /// Oynatıcının meşgul olduğu (yükleme / tampon) durumlar.
+    var isLoading: Bool {
+        switch self {
+        case .loading, .buffering: return true
+        default: return false
+        }
+    }
+}
+
 /// Oynatma motoru arayüzü.
 ///
 /// Somut implementasyon `VLCPlayerEngine` (libvlc/VLCKit tabanlı). Arayüz ayrı
