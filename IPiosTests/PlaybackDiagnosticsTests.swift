@@ -117,6 +117,19 @@ final class PlaybackDiagnosticsTests: XCTestCase {
     }
 
     /// Kanıt varsa hüküm verilir ve kodek adı kullanıcıya söylenir.
+    ///
+    /// **İki metin iki farklı iş yapar ve karıştırılmamalıdır:**
+    ///
+    /// - `message` **kullanıcıya** gösterilir ve kodeğin okunabilir adını
+    ///   taşır ("AC3"). Kullanıcı sağlayıcıya bunu söyleyecek.
+    /// - `technicalCode` **aranabilir** olmalıdır, okunabilir değil: bu yüzden
+    ///   libvlc'nin ölçtüğü ham anahtarı (`ac-3`) taşır. Türkçe bir arayüzde
+    ///   İngilizce hata cümlesi gürültüdür, ama `ac-3` ve `HTTP 403` dile bağlı
+    ///   değildir ve bir arama motoruna olduğu gibi yazılabilir.
+    ///
+    /// Bu ayrım bir kez karıştı: test "AC3" bekliyordu, satırda `ac-3` vardı.
+    /// Doğru olan üretim koduydu — ölçüm ham hâliyle raporlanır. Beklenti
+    /// düzeltildi ve sözleşme buraya yazıldı ki bir daha karışmasın.
     func testAudioCodecFailureWithLogEvidenceIsReported() {
         let failure = classify(
             ["main decoder error: no suitable audio decoder for ac-3"],
@@ -125,10 +138,17 @@ final class PlaybackDiagnosticsTests: XCTestCase {
         guard case .unsupportedAudioCodec(let name) = failure.kind else {
             return XCTFail("ses kodeği bildirilmeliydi, gelen: \(failure.kind)")
         }
+        // Kullanıcıya söylenen ad okunabilir olmalı.
         XCTAssertEqual(name, "AC3")
-        // Teşhis satırı hem ölçümü hem kanıtı taşımalı: kullanıcı hangi kodekten
-        // söz edildiğini ve libvlc'nin ne dediğini görebilsin.
-        XCTAssertTrue(failure.technicalCode.contains("AC3"), failure.technicalCode)
+        XCTAssertTrue(failure.message.contains("AC3"), failure.message)
+
+        // Teşhis satırı ise ölçümü ham hâliyle ve libvlc'nin kendi cümlesini
+        // taşımalı: kullanıcı hangi kodekten söz edildiğini aranabilir biçimde
+        // ve libvlc'nin ne dediğini görebilsin.
+        XCTAssertTrue(
+            failure.technicalCode.lowercased().contains("ac-3"),
+            failure.technicalCode
+        )
         XCTAssertTrue(
             failure.technicalCode.contains("no suitable audio decoder"),
             failure.technicalCode
