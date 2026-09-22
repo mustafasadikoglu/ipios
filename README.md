@@ -206,3 +206,26 @@ boş değerleri, süslü parantez dengesini, kapanmamış çok satırlı dizgele
 `Info.plist` geçerliliğini ve `docs/MIMARI.md` klasör ağacının gerçek dosya
 listesiyle eşleşip eşleşmediğini kontrol eder. Sorun varsa `0` dışında bir çıkış
 kodu döndürür, böylece CI doğrudan başarısız olur.
+
+---
+
+## Sağlayıcı teşhis aracı
+
+Bir yayın açılmadığında sorunun uygulamada mı yoksa sağlayıcıda mı olduğunu
+kesin olarak ayırt etmek için:
+
+```bash
+python3 scripts/xtream_teshis.py --url http://sunucu:8080 --user KULLANICI --pass PAROLA
+```
+
+Betik sağlayıcıya bağlanır ve şunları ölçer: kimlik durumu, üç içerik listesinin
+(canlı/film/dizi) kayıt sayısı, film kayıtlarındaki alan tipleri (`cast`,
+`director`, `genre` dizi olarak mı geliyor), bildirilen `container_extension`
+değerleri ve en önemlisi **aynı içeriğin farklı uzantılarla gerçekten hangi
+adreste açıldığı**. Sonunda iki ayrı liste verir: oynatmayı gerçekten durduran
+engeller ve IPiOS'un zaten tolere ettiği tuhaflıklar.
+
+Kimlik bilgisi betiğe yazılmaz, yalnızca komut satırından verilir ve hiçbir
+dosyaya kaydedilmez. Çıktıyı paylaşırken sunucu adını ve kullanıcı adını
+gizlemek için `--redact` ekleyin. Betik `0` dönerse sağlayıcı sağlamdır; sorun
+uygulama tarafındadır.
