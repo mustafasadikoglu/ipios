@@ -39,8 +39,24 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     @Published private(set) var didResumeFromSavedPosition: Bool = false
     @Published private(set) var isBuffering: Bool = false
 
-    /// Oynatıcı. Görüntü yüzeyi (`VideoSurfaceView`) `drawable` üzerinden bağlanır.
+    /// Oynatıcı.
     let player = VLCMediaPlayer()
+
+    /// Görüntü yüzeyi. **Motorun malıdır ve ömrü boyunca yaşar.**
+    ///
+    /// Neden burada, `VideoSurfaceView` içinde değil: yüzey bir zamanlar
+    /// görünüm katmanında üretiliyor ve görünüm ekrandan çıktığında
+    /// `player.drawable = nil` ile **koparılıyordu**. Oynatma ise
+    /// `PlayerPresenter.present()` içinde, kapak görünümü çizilmeden önce
+    /// başlatılır; yani libvlc görüntü çıkışını kurarken `drawable` çoğu zaman
+    /// henüz atanmamış oluyordu. Ses çıkışı kurulur, görüntü çıkışı kurulamaz —
+    /// kullanıcı sesi duyar, ekran siyah kalır. Yarış olduğu için belirti
+    /// kararsızdı ("bazıları açılıyor, bazıları öyle"), çünkü yavaş açılan
+    /// dosyalarda yüzey yetişiyor, hızlı açılanlarda yetişmiyordu.
+    ///
+    /// Yüzey burada, oynatıcıyla aynı ömre sahip olduğu için bağ **oynatma
+    /// başlamadan çok önce** kurulur ve hiçbir zaman koparılmaz.
+    let videoSurface = UIView()
 
     // MARK: - İç durum
 
@@ -67,6 +83,47 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
 
     /// `stop()` sırasında gelen `.stopped` bildirimi kesilme sanılmasın.
     private var isStopping = false
+
+    /// Kullanıcı sarma isteği verdi mi? Yeni konum için görüntü hazırlanana
+    /// kadar `true` kalır (bkz. `updateBufferingIndicator`).
+    ///
+    /// Neden gerekli: sarma sırasında kare donar ve yeni konumun indirilmesi
+    /// saniyeler alabilir. Eskiden bu süre boyunca **hiçbir gösterge
+    /// çıkmıyordu**; koşul `!hasStartedPlaying || !state.isPlaying` idi ve
+    /// oynatma bir kez başladıktan sonra hiçbir zaman doğru olamıyordu. Kullanıcı
+    /// donmuş kareye bakıp "yüklenmiyor" diyordu — oysa yükleme sürüyordu ve
+    /// yalnızca görünmüyordu.
+    private var isSeeking = false
+
+    /// Sarmanın üzerinden bu kadar süre geçerse gösterge kapatılır. Emniyet
+    /// supabıdır: libvlc tamponlama bildirimi göndermeden oynatmayı sürdürürse
+    /// gösterge sonsuza kadar ekranda kalmamalıdır.
+    private var seekIndicatorTask: Task<Void, Never>?
+
+    /// Sarma sırasında ulaşılmak istenen konum (saniye). Göstergenin ne zaman
+    /// kapanacağı bu değere bakılarak belirlenir.
+    private var seekingTarget: Double = 0
+
+    /// "Konuma ulaşıldı" sayılmak için kabul edilen sapma (saniye). libvlc
+    /// arama sonrası tam olarak istenen milisaniyeye oturmaz; anahtar kare
+    /// hizalaması yüzünden birkaç saniye oynayabilir. Sıkı bir ölçüt göstergeyi
+    /// hiç kapatmazdı.
+    private let seekArrivalTolerance: Double = 3
+
+    /// Sarmanın başladığı an. `.playing` bildiriminin "gerçekten yeni konum"
+    /// mu yoksa "henüz eski akış" mı olduğunu ayırt etmek için kullanılır.
+    private var seekStartedAt: Date?
+
+    /// `.playing` bildirimiyle göstergenin kapanması için sarmadan sonra
+    /// geçmesi gereken asgari süre (saniye).
+    ///
+    /// **Neden ikisi birden gerekli:** iki uç davranış da kusurludur.
+    /// `.playing`'i koşulsuz kabul etmek, libvlc sarma sonrası bu bildirimi
+    /// yeni kare çizilmeden önce gönderdiğinde göstergeyi erken kapatır ve
+    /// kullanıcı yine donmuş kareye bakar (şikâyet edilen belirti). Hiç kabul
+    /// etmemek ise akış normal oynarken göstergeyi gereğinden uzun süre açık
+    /// bırakır. Kısa bir bekleme süresi iki durumu da ayırır.
+    private let seekPlaybackGrace: Double = 1.5
 
     /// Başlatma için beklenecek azami süre (saniye).
     private var startupTimeout: Double { isLive ? 12 : 20 }
@@ -128,8 +185,12 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         // sığmıyor" olarak bildirdi. Canlı ile VOD arasında davranış farkı
         // olması da beklenmedikti.
         player.videoFitMode = .smaller
-        // Kanal değişiminde eski yayının görüntüsü bir an görünmesin.
-        player.drawable = nil
+        // Görüntü yüzeyi **burada, bir kez** bağlanır ve bir daha koparılmaz.
+        // `drawable` kuvvetli tutulduğu için yüzey motordan uzun yaşayamaz;
+        // motor uygulama ömrü boyunca tek olduğundan bu bir sızıntı değildir.
+        // Bağın oynatma başlamadan önce kurulmuş olması, "ses var görüntü yok"
+        // kusurunun kök nedenini ortadan kaldırır (bkz. `videoSurface`).
+        player.drawable = videoSurface
         player.timeChangeUpdateInterval = 0.5
         player.minimalTimePeriod = 500_000
     }
@@ -147,11 +208,7 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
             self?.duration = seconds
         }
         bridge.onBuffering = { [weak self] progress in
-            guard let self else { return }
-            // `progress` [0,1] aralığındadır. Yalnızca ilk kare gelmeden önce
-            // gösterilir; oynatma başladıktan sonraki kısa tamponlamalar
-            // kullanıcıya gösterge olarak yansıtılmaz (yayın zaten görünüyor).
-            self.isBuffering = progress < 1.0 && (!self.hasStartedPlaying || !self.state.isPlaying)
+            self?.updateBufferingIndicator(progress: progress)
         }
     }
 
@@ -264,6 +321,9 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     private func startItem(with url: URL) {
         startupOutcome = nil
         lastAttemptTimedOut = false
+        // Önceki oturumdan kalan sarma durumu yeni denemeye taşınmamalı:
+        // taşınsaydı gösterge hiç kapanmazdı.
+        finishSeeking()
         isBuffering = true
 
         // Önceki oturumun günlüğü temizlenir: çoktan çözülmüş bir sorunun
@@ -334,7 +394,15 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
 
         case .playing:
             hasStartedPlaying = true
-            isBuffering = false
+            // Sarma sürerken `.playing` yeniden bildirilebilir (libvlc arama
+            // sonrası durumu tazeler). Göstergeyi burada koşulsuz kapatmak,
+            // yeni konum hazır olmadan ekranı "hazır" göstermek olurdu; bu
+            // yüzden kapatma kararı `shouldPlaybackEndSeek`'e bırakılır.
+            if shouldPlaybackEndSeek {
+                finishSeeking()
+            } else if !isSeeking {
+                isBuffering = false
+            }
             // Kaydedilmiş konum, oynatma gerçekten başladıktan sonra uygulanır:
             // libvlc arama isteğini ancak akış çözüldükten sonra işleyebilir.
             if savedPosition > 0 {
@@ -414,10 +482,46 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         guard seconds.isFinite, seconds >= 0 else { return }
         currentTime = seconds
 
+        // Sarma tamamlandı mı? Ölçüt "zaman ilerledi" **değil**, "istenen
+        // konuma ulaşıldı" olmalıdır. libvlc arama isteğini işleyene kadar eski
+        // konumdan bildirim göndermeye devam eder; "sıfırdan büyükse bitti"
+        // demek göstergeyi hemen kapatır ve kullanıcı yine donmuş kareye bakar.
+        if isSeeking, abs(seconds - seekingTarget) <= seekArrivalTolerance {
+            finishSeeking()
+        }
+
         // VOD'da konum periyodik olarak diske yazılır.
         if !isLive, abs(seconds - lastSavedPosition) >= positionSaveInterval {
             Task { await persistPosition() }
         }
+    }
+
+    /// Tampon göstergesinin görünürlüğünü tek bir yerden belirler.
+    ///
+    /// Kural: gösterge, oynatmanın **kesintiye uğradığı** her durumda görünür —
+    /// ilk kare gelmeden önce, sarma sonrası yeni konum hazırlanırken ve ağ
+    /// tamponu boşaldığında. Eskiden yalnızca ilk durum kapsanıyordu ve sarma
+    /// sırasında ekran sessizce donuyordu.
+    ///
+    /// - Parameter progress: libvlc'nin bildirdiği tampon oranı (0...1).
+    private func updateBufferingIndicator(progress: Float) {
+        let isFilling = progress < 1.0
+
+        if !hasStartedPlaying {
+            // İlk kare bekleniyor: her durumda gösterilir.
+            isBuffering = isFilling
+            return
+        }
+        if isSeeking {
+            // Sarma sonrası: yeni konum hazır olana kadar gösterilir. libvlc
+            // bu sırada `progress == 1.0` bildirebilir, bu yüzden tampon oranına
+            // bakılmaz — ölçüt "sarma bitmedi" olmasıdır.
+            isBuffering = true
+            return
+        }
+        // Oynatma akarken görünen kısa tamponlamalar göstergeye çevrilmez:
+        // yayın zaten görünüyor ve gösterge görüntüyü gereksiz kapatırdı.
+        isBuffering = false
     }
 
     // MARK: - Kontroller
@@ -490,6 +594,7 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         lastAttemptTimedOut = false
         savedPosition = 0
         currentItem = nil
+        finishSeeking()
 
         if let (savedItem, savedSeconds, savedDuration) = pendingPosition {
             Task { [recents] in
@@ -514,10 +619,61 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         let upperBound = duration.map { max($0 - 1, 0) } ?? seconds
         let target = min(max(seconds, 0), upperBound)
 
+        beginSeeking(target: target)
         player.time = VLCTime(int: Int32(target * 1000))
         currentTime = target
         savedPosition = target
         updateNowPlaying()
+    }
+
+    /// Sarma başladı: yeni konum hazırlanana kadar gösterge açık kalır.
+    ///
+    /// Neden gerekli: sarma sonrası libvlc yeni konumu indirmek için saniyeler
+    /// harcayabilir ve bu süre boyunca ekranda **donmuş kare** kalır. Gösterge
+    /// olmadan kullanıcı bunu "bozuldu, yüklenmiyor" olarak yorumlar (bildirilen
+    /// belirti tam olarak buydu).
+    private func beginSeeking(target: Double) {
+        isSeeking = true
+        seekingTarget = target
+        seekStartedAt = Date()
+        isBuffering = true
+
+        // Emniyet supabı: tamponlama/sarma bildirimi hiç gelmezse gösterge
+        // ekranda kilitli kalmasın.
+        //
+        // **Eşiğin uzun tutulması bilinçlidir.** Sağlayıcı HTTP `Range`
+        // desteklemiyorsa sarma dosyanın başından yeniden indirmeyi gerektirir
+        // ve bu dakikalar sürebilir (ölçüm: `scripts/xtream_teshis.py` bölüm
+        // [5d]). Erken kapatmak, gerçekten süren bir işlemi "bitti" gibi
+        // gösterip kullanıcıyı donmuş kareyle baş başa bırakırdı — şikâyet
+        // edilen belirtinin ta kendisi. Uzun bir gösterge rahatsız edicidir ama
+        // **dürüsttür**; sessizce donmuş kare göstermek yanlış bilgidir. İki
+        // kötüden az kötüsü seçildi.
+        seekIndicatorTask?.cancel()
+        seekIndicatorTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(120))
+            guard !Task.isCancelled else { return }
+            self?.finishSeeking()
+        }
+    }
+
+    /// Sarma tamamlandı (ya da vazgeçildi): gösterge kapatılır.
+    private func finishSeeking() {
+        guard isSeeking else { return }
+        isSeeking = false
+        seekStartedAt = nil
+        seekIndicatorTask?.cancel()
+        seekIndicatorTask = nil
+        isBuffering = false
+    }
+
+    /// `.playing` bildirimi sarma göstergesini kapatmalı mı?
+    ///
+    /// Yalnızca sarmadan bu yana `seekPlaybackGrace` kadar süre geçtiyse
+    /// kapatılır. Gerekçe için `seekPlaybackGrace` açıklamasına bakın.
+    private var shouldPlaybackEndSeek: Bool {
+        guard isSeeking, let startedAt = seekStartedAt else { return false }
+        return Date().timeIntervalSince(startedAt) >= seekPlaybackGrace
     }
 
     func persistPosition() async {

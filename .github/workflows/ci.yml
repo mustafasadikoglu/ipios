@@ -35,6 +35,13 @@ jobs:
           CHECK_REPORT: static-check.txt
         run: python3 scripts/static_check.py
 
+      # Tampon göstergesinin karar mantığı. Swift derleyicisi olmadan
+      # doğrulanamayan bu akış burada, birebir Python portu üzerinden sınanır.
+      # Neden CI'da: mantık "ileri sarınca yüklenmiyor" kusurunun düzeltmesidir
+      # ve sessizce bozulursa kullanıcı yine donmuş kareye bakar.
+      - name: Tampon göstergesi mantığını sına
+        run: python3 scripts/seek_mantik_testi.py
+
       - name: Raporu yükle
         if: always()
         uses: actions/upload-artifact@v4

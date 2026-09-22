@@ -473,6 +473,9 @@ Kritik noktalar:
 | VLCKit bağımlılığının kapsamı genişletmesi | Orta | Bağımlılık **yalnızca oynatma katmanına** alındı. Veri, ağ, arayüz ve depolama katmanları Apple çatılarıyla yazılmaya devam ediyor; bu sınır `scripts/static_check.py` ile denetlenir (oynatma yolu `AVFoundation`'a dönerse CI kırılır). |
 | VideoLAN etiketlerinin tutarsızlığı | Orta | `exactVersion` **zorunlu**: `4.0.0a21` geçersiz semver iken `4.0.0-a24` geçerlidir. Sürüm aralığı verilirse SwiftPM geçerli en yüksek etiketi kendi seçer ve beklenmedik bir derlemeye düşer. Sabitleme hem `project.yml` içinde hem statik denetimde tutulur. |
 | Kodek tablosunun artık hüküm vermemesi | Orta | libvlc AC3/E-AC3/DTS/TrueHD/Opus ve AV1/VP9'u yazılım çözücüleriyle oynatır. `AVPlayer` döneminden kalan "bu kodek tabloda varsa çalınamaz" varsayımı **yanlış teşhis** üretirdi (kullanıcı boşuna sağlayıcıdan AAC isterdi). Tablo artık yalnızca **adlandırma** sözlüğüdür; hüküm yalnızca libvlc'nin günlükte şikâyet ettiği durumda verilir. `PlaybackDiagnosticsTests` bunu teste bağlar. |
+| Görüntü yüzeyi oynatma başlamadan bağlanmazsa "ses var, görüntü yok" | Yüksek | Yüzey artık `VideoSurfaceView` içinde üretilmez; **motorun malıdır** (`VLCPlayerEngine.videoSurface`) ve oynatıcı kurulurken bir kez `drawable` olarak atanır, hiç koparılmaz. Ayrıntı ve ölçülmüş belirti için Bölüm 11.2. |
+| İleri sarma sırasında gösterge çıkmaması ("donuyor, yüklenmiyor") | Yüksek | Sarma durumu motorda açıkça izlenir (`isSeeking`) ve gösterge sarma boyunca açık kalır; kapatma kararı "zaman ilerledi" değil "hedefe ulaşıldı" ölçütüne ve `.playing` için asgari bir bekleme süresine bağlanır. Ayrıca sağlayıcının HTTP `Range` desteği ölçülür (`xtream_teshis.py` bölüm `[5d]`). Ayrıntı için Bölüm 11.3. |
+| Sağlayıcının HTTP `Range` desteklememesi | Orta | Sarma dosyanın başından indirmeyi gerektirir ve uzun sürer; bu sağlayıcının sınırıdır, uygulamanın kusuru değil. Teşhis betiği bunu **hüküm** olarak raporlar ki kullanıcı boşuna uygulamada çözüm aramasın. |
 
 ### 11.1 Ölçülmüş kök neden: neden filmler oynamıyordu
 
@@ -511,6 +514,62 @@ bağımlılık yok" ilkesi bu tek katman için bilinçli olarak esnetildi; Matro
 libvlc başarısızlığın nedenini kendi günlüğünde açıkça yazar (tanınmayan demuxer,
 çözülemeyen kodek, HTTP durum kodu). Teşhis artık **okunuyor**, tahmin edilmiyor —
 bu, benzer bir kusurun bir daha üç tur sürmemesini sağlar.
+
+### 11.2 Ölçülmüş kök neden: neden "ses var, görüntü yok"
+
+libvlc'ye geçiş filmleri oynattı ama yeni bir belirti çıktı: *"videolar açıldı fakat
+ses var görüntü yok; bazıları açılıyor, bazıları öyle."* Belirtinin **kararsız**
+olması en değerli ipucuydu: kararsız belirti, kararsız bir **zamanlama** demektir.
+
+Kök neden bir yarıştı. Görüntü yüzeyi `VideoSurfaceView.makeUIView` içinde üretiliyor,
+`player.drawable`'a bağlanıyor, görünüm ekrandan çıktığında
+(`willMove(toWindow: nil)`) ise bağ `player.drawable = nil` ile **koparılıyordu**.
+Oysa oynatma `PlayerPresenter.present()` içinde, kapak görünümü daha çizilmeden
+başlatılır. Yani libvlc görüntü çıkışını kurarken `drawable` çoğu zaman **henüz
+atanmamış** oluyordu. Ses çıkışı kurulur, görüntü çıkışı kurulamaz.
+
+Kararsızlığın açıklaması da buydu: ağ yavaş açılan dosyalarda yüzey yetişiyordu,
+hızlı açılanlarda yetişmiyordu. Aynı yarış kapak kapanıp açıldığında ve döndürme
+sırasında da tekrarlanıyordu.
+
+**Alınan karar:** yüzeyin sahibi görünüm değil **motordur**. `VLCPlayerEngine.videoSurface`
+oynatıcıyla aynı ömre sahiptir; `configurePlayer()` içinde bir kez `drawable` olarak
+atanır ve hiçbir koşulda koparılmaz. `VideoSurfaceView` artık yüzey **üretmez**,
+yalnızca barındırır (`SurfaceHostView`). Bağ oynatma başlamadan çok önce kurulduğu
+için yarış tümüyle ortadan kalkar. `drawable` kuvvetli tutulduğundan yüzey motordan
+uzun yaşayamaz; motor uygulama ömrü boyunca tek olduğu için bu bir sızıntı değildir.
+
+### 11.3 Ölçülmüş belirti: ileri sarınca donma
+
+Aynı bildirimin ikinci yarısı: *"ileri bir noktaya sardığımda görüntü donuyor,
+yüklenmiyor."* Kullanıcıya sorulduğunda sesin de durduğu, yani oynatmanın tamamen
+duraksadığı doğrulandı — bir arayüz kilitlenmesi değil.
+
+İki ayrı sorun üst üste biniyordu:
+
+**Birincisi, gösterge hiç çıkmıyordu.** Tampon göstergesinin koşulu
+`!hasStartedPlaying || !state.isPlaying` idi. Oynatma bir kez başladıktan sonra bu
+koşul **hiçbir zaman** doğru olamaz; yani sarma sırasında — ekranda donmuş bir kare
+varken ve yeni konum indirilirken — kullanıcı hiçbir geri bildirim görmüyordu.
+Yükleme sürüyordu, yalnızca görünmüyordu.
+
+Düzeltme, sarma durumunu motorda açıkça izlemektir (`isSeeking`) ve göstergenin
+görünürlüğünü tek bir yerden (`updateBufferingIndicator`) belirlemektir. Kritik
+ayrıntı **kapatma ölçütüdür**: "zaman ilerledi" demek yanlıştır, çünkü libvlc arama
+isteğini işleyene kadar eski konumdan bildirim göndermeye devam eder ve gösterge
+hemen kapanır — kullanıcı yine donmuş kareye bakar. Ölçüt "istenen konuma ulaşıldı"
+olmalıdır (anahtar kare hizalaması için birkaç saniyelik toleransla). `.playing`
+bildirimi için de koşulsuz kapatma yanlıştır: libvlc bu bildirimi yeni kare çizilmeden
+önce gönderebilir. Bu yüzden sarmadan sonra asgari bir bekleme süresi aranır; iki uç
+davranış da (erken kapatma / hiç kapatmama) bu süreyle ayrılır.
+
+**İkincisi, sarma gerçekten yavaş olabilir.** Bunun nedeni uygulamada değil
+sağlayıcıda olabilir: sunucu HTTP `Range` isteklerini yok sayıyorsa, sarma dosyanın
+**başından** yeniden indirilmesini gerektirir. Bu yüzden teşhis betiğine
+`[5d]` bölümü eklendi: `Accept-Ranges` başlığı ve bir `Range` isteğinin gerçekten
+206 dönüp dönmediği ölçülür. Sonuç **hüküm** olarak raporlanır — sağlayıcı
+desteklemiyorsa bu bir sunucu sınırıdır ve kullanıcı boşuna uygulamada çözüm
+aramamalıdır.
 
 ---
 

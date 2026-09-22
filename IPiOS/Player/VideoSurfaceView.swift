@@ -1,74 +1,61 @@
 import SwiftUI
 import UIKit
-import VLCKit
 
 /// libvlc görüntüsünü SwiftUI içinde gösteren katman.
 ///
-/// `AVPlayer` döneminde bu görünüm `AVPlayerLayer`'ı barındırıyordu ve katman
-/// tipi `layerClass` ile sabitlenmek zorundaydı. libvlc'de böyle bir zorunluluk
-/// yok: `VLCMediaPlayer.drawable` **herhangi bir `UIView`** kabul eder ve kendi
-/// görüntü alt katmanını o görünüme ekler. Bu yüzden sade bir `UIView` yeterli
-/// ve en düşük riskli seçenektir — `VLCDrawable` protokolünün istediği iki üye
-/// (`addSubview:` ve `bounds`) `UIView`'da zaten vardır.
+/// **Bu görünüm artık yüzeyi üretmez, yalnızca barındırır.** Yüzeyin sahibi
+/// motordur (`VLCPlayerEngine.videoSurface`) ve oynatıcı kurulurken bir kez
+/// oluşturulup `drawable` olarak atanır. Bu ayrım bir kusurun düzeltmesidir;
+/// gerekçesi aşağıda.
 ///
-/// Ölçekleme burada **değil** oynatıcıda ayarlanır (`videoFitMode`), çünkü
-/// libvlc görüntüyü kendi çizdiği alt katmana yerleştirir ve SwiftUI tarafından
-/// yapılan hiçbir katman ayarı onu etkilemez.
+/// **Ölçülmüş kusur (ses var, görüntü yok):** yüzey eskiden burada,
+/// `makeUIView` içinde üretilip `player.drawable`'a bağlanıyordu ve
+/// `willMove(toWindow: nil)` ile görünüm ekrandan çıktığında bağ **koparılıyordu**
+/// (`player.drawable = nil`). Oysa oynatma `PlayerPresenter.present()` içinde,
+/// kapak görünümü daha çizilmeden başlatılır. Yani libvlc görüntü çıkışını
+/// kurarken `drawable` çoğu zaman **henüz atanmamış** oluyordu. Sonuç: ses
+/// çıkışı kurulur, görüntü çıkışı kurulamaz — kullanıcı sesi duyar, ekran
+/// siyah kalır. Bir yarış olduğu için belirti kararsızdı: ağ yavaş açılan
+/// dosyalarda yüzey yetişiyor, hızlı açılanlarda yetişmiyordu. Aynı yarış
+/// kapak kapanıp açıldığında ve döndürme sırasında da tekrarlanıyordu.
+///
+/// Kalıcı yüzey bu yarışı tümüyle ortadan kaldırır: bağ, oynatma başlamadan
+/// **çok önce** kurulmuş olur ve hiçbir zaman koparılmaz.
 struct VideoSurfaceView: UIViewRepresentable {
 
-    let player: VLCMediaPlayer
+    /// Motorun sahibi olduğu kalıcı görüntü yüzeyi.
+    let surface: UIView
 
-    func makeUIView(context: Context) -> PlayerSurfaceView {
-        let view = PlayerSurfaceView()
-        view.backgroundColor = .black
-        view.attach(to: player)
-        return view
+    func makeUIView(context: Context) -> SurfaceHostView {
+        let host = SurfaceHostView()
+        host.backgroundColor = .black
+        host.host(surface)
+        return host
     }
 
-    func updateUIView(_ uiView: PlayerSurfaceView, context: Context) {
-        uiView.attach(to: player)
+    func updateUIView(_ uiView: SurfaceHostView, context: Context) {
+        uiView.host(surface)
     }
 }
 
-/// Oynatıcının görüntüsünü barındıran ve `drawable` bağını **iki yönlü**
-/// yöneten görünüm.
+/// Motorun yüzeyini kendi sınırlarına yerleştiren, sade bir kabuk.
 ///
-/// İki yönlü yönetim neden gerekli: `VLCMediaPlayer.drawable` kuvvetli
-/// (strong) tutulur. Yalnızca bağlamak yetmez — görünüm ekrandan çıktığında
-/// bırakılmazsa kapandığı sanılan oynatıcı ekranının görünümü bellekte asılı
-/// kalır ve bir sonraki açılışta iki yüzey birden oynatıcıya bağlı kalabilir.
-final class PlayerSurfaceView: UIView {
+/// Yüzeyin kendisi **motorun malıdır** ve bu görünüm onu yalnızca barındırır.
+/// Böylece oynatıcı ekranı kapansa bile `drawable` bağı kopmaz; sesin devam
+/// ettiği ama görüntünün kaybolduğu durum oluşamaz.
+final class SurfaceHostView: UIView {
 
-    /// Zayıf tutulur: oynatıcı zaten motor tarafından güçlü tutulur ve
-    /// oynatıcı bu görünümü güçlü tuttuğu için burada güçlü bir referans
-    /// döngü oluştururdu.
-    private weak var player: VLCMediaPlayer?
+    private weak var hosted: UIView?
 
-    /// Oynatıcıya bağlanır (gerekmiyorsa hiçbir şey yapmaz).
-    func attach(to player: VLCMediaPlayer) {
-        self.player = player
-        guard player.drawable as? UIView !== self else { return }
-        player.drawable = self
-    }
+    /// Yüzeyi kabuğa yerleştirir. Zaten yerleştirilmişse hiçbir şey yapmaz.
+    func host(_ surface: UIView) {
+        guard hosted !== surface else { return }
 
-    /// Görünüm pencere hiyerarşisine girdiğinde/çıktığında bağı günceller.
-    ///
-    /// Bu kanca `dismantleUIView` yerine tercih edildi: `dismantleUIView`
-    /// statik olduğu için oynatıcı örneğine erişemez ve bağ yalnızca SwiftUI'ın
-    /// görünümü tamamen sökmesiyle koparılırdı. `willMove(toWindow:)` ise
-    /// görünüm ekrandan çıktığı anda çalışır ve **kendini onarır**: pencere
-    /// yeniden atandığında bağ geri kurulur, böylece geçici bir sökülme
-    /// oynatmayı kalıcı olarak karartmaz.
-    override func willMove(toWindow newWindow: UIWindow?) {
-        super.willMove(toWindow: newWindow)
-        guard let player else { return }
-
-        if newWindow == nil {
-            if player.drawable as? UIView === self {
-                player.drawable = nil
-            }
-        } else if player.drawable as? UIView !== self {
-            player.drawable = self
-        }
+        hosted?.removeFromSuperview()
+        surface.removeFromSuperview()
+        surface.frame = bounds
+        surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(surface)
+        hosted = surface
     }
 }

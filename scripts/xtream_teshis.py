@@ -123,6 +123,62 @@ def probe(url, ua, timeout=12):
         return None, str(e)[:60], 0, "hata", ""
 
 
+def probe_seek(url, ua, offset=10_000_000, timeout=15):
+    """Adresin **ileri sarmayi** destekleyip desteklemedigini olcer.
+
+    Neden gerekli: "ileri sarinca donuyor" belirtisinin iki kaynagi olabilir ve
+    ikisinin cozumu tamamen farklidir. Bu olcum ayrimi kesinlestirir.
+
+      1. Sunucu `Range` istegini yok sayiyorsa, yeni konum icin dosyanin
+         basindan itibaren indirme yapmak zorunda kalir. Sarma saniyeler hatta
+         dakikalar surer; kullanici bunu "dondu" olarak yasar. Sorun
+         saglayicidadir, IPiOS'ta degil.
+      2. Sunucu `Range` destekliyorsa sarma hizlidir ve sorun IPiOS
+         tarafindadir.
+
+    Yalnizca `Accept-Ranges` basligina bakmak YETMEZ: bazi paneller o basligi
+    "bytes" olarak bildirip yine de istegi yok sayar. Bu yuzden gercek bir
+    `Range` istegi gonderilir ve **yanitin gercekten istenen bolgeden gelip
+    gelmedigi** dogrulanir.
+
+    Donen demet: (destekliyor, aciklama).
+      - destekliyor: True / False / None (olculemedi)
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    headers = {
+        "User-Agent": ua,
+        "Range": f"bytes={offset}-{offset + 4095}",
+    }
+    try:
+        req = urllib.request.Request(url, method="GET", headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            status = r.status
+            crange = r.headers.get("Content-Range", "")
+            body = r.read()
+    except urllib.error.HTTPError as e:
+        return False, f"HTTP {e.code} (Range istegi reddedildi)"
+    except Exception as e:
+        return None, f"olculemedi ({str(e)[:40]})"
+
+    # Durum 206 = "Partial Content": istenen bolge dondu. Beklenen davranis budur.
+    if status == 206:
+        # Baslik yalan soyleyebilir: gercekten o offsetten mi basliyor?
+        if crange.startswith(f"bytes {offset}-"):
+            return True, f"HTTP 206, Content-Range: {crange}"
+        return True, f"HTTP 206 (Content-Range: {crange or 'yok'})"
+
+    # Durum 200 = sunucu Range'i **yok saydi** ve dosyayi bastan gonderiyor.
+    # Bu durumda sarma dosyanin basindan itibaren indirmeyi gerektirir.
+    if status == 200:
+        return False, (
+            f"HTTP 200 — sunucu Range istegini yok saydi, dosyayi bastan "
+            f"gonderiyor ({len(body)} bayt okundu)"
+        )
+    return False, f"beklenmeyen durum: HTTP {status}"
+
+
 # Konteyner imzalari. Sira onemli: TS imzasi MP4'ten once denenmezse
 # yanlis eslesme olabilir, ama TS'in senkron bayti (0x47) cok zayif bir
 # imzadir ve yanlis pozitif uretir; bu yuzden yalnizca acik imzalar kullanilir.
@@ -456,6 +512,41 @@ def main():
             break
     if not sniffed:
         out("  Denenecek acik adres bulunamadi.")
+
+    # --- 5d. Ileri sarma (Range) destegi -----------------------------------
+    out("\n[5d] ILERI SARMA (HTTP Range) DESTEGI")
+    out("  'Ileri sarinca donuyor' belirtisinin kaynagini belirler.")
+    out("  Sunucu Range istegini yok sayiyorsa sarma dosyanin basindan")
+    out("  indirmeyi gerektirir; bu saglayicinin siniridir, IPiOS'un degil.")
+
+    seek_tested = False
+    for it in vod_items[: args.sample]:
+        sid = it.get("stream_id") or it.get("id")
+        if sid is None:
+            continue
+        ext = (it.get("container_extension") or "mp4").strip() or "mp4"
+        u = f"{base}/movie/{args.user}/{args.password}/{sid}.{ext}"
+        st, _, _, sinif, _ = probe(u, ua=IPIOS_UA)
+        if st != 200 or sinif in ("bos", "html"):
+            continue
+        supported, detail = probe_seek(u, ua=IPIOS_UA)
+        seek_tested = True
+        out(f"  film id={sid} (.{ext}): {detail}")
+        if supported is True:
+            out("     => Range DESTEKLENIYOR. Sarma hizli olmali;")
+            out("        yavaslik varsa sorun IPiOS tarafindadir.")
+        elif supported is False:
+            out("     => Range DESTEKLENMIYOR. Sarma icin dosya bastan")
+            out("        indirilir; bu yuzden ileri sarma saniyeler surer.")
+            problems.append(
+                "saglayici HTTP Range (ileri sarma) desteklemiyor — "
+                "film ileri sarildiginda beklenmesi normaldir"
+            )
+        else:
+            notes.append("ileri sarma destegi olculemedi (ag hatasi)")
+        break
+    if not seek_tested:
+        out("  Olculecek acik adres bulunamadi.")
 
     # --- 6. Dizi ornegi ----------------------------------------------------
     out("\n[6] DIZI BOLUM ADRESI DENEMESI")

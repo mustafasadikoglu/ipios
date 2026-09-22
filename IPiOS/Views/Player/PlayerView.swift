@@ -72,7 +72,10 @@ private struct PlayerContent: View {
             // alt katmana yerleştirir ve `videoFitMode` ile ayarlanır
             // (bkz. `VLCPlayerEngine.configurePlayer`). SwiftUI'dan yapılan bir
             // katman ayarı onu etkilemezdi.
-            VideoSurfaceView(player: viewModel.engine.player)
+            //
+            // Yüzey motordan alınır: sahibi motordur ve `drawable` bağı oynatma
+            // başlamadan önce kurulmuş olur (bkz. `VLCPlayerEngine.videoSurface`).
+            VideoSurfaceView(surface: viewModel.engine.videoSurface)
                 .ignoresSafeArea()
 
             if viewModel.engine.isBuffering {
