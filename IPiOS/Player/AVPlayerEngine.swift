@@ -576,23 +576,46 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     /// denenir; sağlayıcı HLS sunmuyorsa ham TS'e düşülür ve oynatıcı hata
     /// verirse durum kullanıcıya bildirilir.
     ///
-    /// VOD ve dizilerde adres doğrudan sağlayıcıdan geldiği için yedek
-    /// üretilmez; tek adayla denenir.
+    /// VOD ve dizilerde uzantı sağlayıcının bildirdiği konteynerdir. `AVPlayer`
+    /// bunların hepsini çözemez (`.mkv`, `.avi`, `.webm` desteklenmez); bu
+    /// yüzden tek adayla yetinmek yerine uzantının **okunabilir** olup
+    /// olmadığına bakılır: çözülemeyen ve HLS'e çevrilebilir bir konteyner
+    /// (`.mkv` gibi) için `.m3u8` yedeği eklenir. Sağlayıcı aynı içeriği HLS
+    /// olarak sunuyorsa oynatma yine de başlar; sunmuyorsa hata açıkça
+    /// bildirilir.
     static func playbackCandidates(for item: any MediaItem, isLive: Bool) -> [URL] {
         let primary = item.streamURL
-        guard isLive else { return [primary] }
 
-        let ts = replacingExtension(of: primary, with: "ts")
-        let m3u8 = replacingExtension(of: primary, with: "m3u8")
+        if isLive {
+            let ts = replacingExtension(of: primary, with: "ts")
+            let m3u8 = replacingExtension(of: primary, with: "m3u8")
 
-        var candidates: [URL] = []
-        for url in [m3u8, ts] where url != nil {
-            if !candidates.contains(url!) { candidates.append(url!) }
+            var candidates: [URL] = []
+            for url in [m3u8, ts] where url != nil {
+                if !candidates.contains(url!) { candidates.append(url!) }
+            }
+            // Uzantı tanınmadıysa (örneğin uzantısız adres) asıl adres korunur.
+            if candidates.isEmpty { candidates = [primary] }
+            return candidates
         }
-        // Uzantı tanınmadıysa (örneğin uzantısız adres) asıl adres korunur.
-        if candidates.isEmpty { candidates = [primary] }
-        return candidates
+
+        // VOD: yalnızca doğrudan çözülemeyen konteynerler için yedek üretilir.
+        let ext = primary.pathExtension.lowercased()
+        guard Self.unplayableContainers.contains(ext) else { return [primary] }
+
+        guard let hls = replacingExtension(of: primary, with: "m3u8") else {
+            return [primary]
+        }
+        return [primary, hls]
     }
+
+    /// `AVPlayer`'ın doğrudan çözemediği video konteynerleri.
+    ///
+    /// Bu uzantılarda oynatma neredeyse her zaman başarısız olur; yedek adres
+    /// denemesi bu yüzden anlamlıdır. `.mp4`, `.mov` ve `.m2ts` listede
+    /// değildir — onlar zaten oynatılabilir ve gereksiz bir deneme, sağlayıcıya
+    /// boşuna istek göndermek olurdu.
+    private static let unplayableContainers: Set<String> = ["mkv", "avi", "webm", "flv", "wmv"]
 
     /// Adresin yol uzantısını değiştirir. Uzantı yoksa `nil` döner; böylece
     /// anlamsız bir adres üretilmez.

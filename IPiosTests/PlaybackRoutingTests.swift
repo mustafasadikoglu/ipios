@@ -56,13 +56,33 @@ final class PlaybackRoutingTests: XCTestCase {
         XCTAssertEqual(candidates.count, 2)
     }
 
-    /// VOD'da tek adres kullanılır; uzantı değiştirilmez (`.mp4` doğrudan
-    /// oynatılabilir ve yedek adres üretmek gereksiz bir deneme olurdu).
+    /// VOD'da doğrudan oynatılabilen konteynerler tek adayla denenir; uzantı
+    /// değiştirilmez (`.mp4` doğrudan oynatılabilir ve yedek adres üretmek
+    /// sağlayıcıya boşuna istek göndermek olurdu).
     @MainActor
-    func testVODUsesSingleCandidate() {
-        let url = "http://cdn.example.com/movie/user/pass/9.mp4"
-        let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
-        XCTAssertEqual(candidates.map(\.absoluteString), [url])
+    func testPlayableVODContainerUsesSingleCandidate() {
+        for ext in ["mp4", "mov", "m2ts"] {
+            let url = "http://cdn.example.com/movie/user/pass/9.\(ext)"
+            let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
+            XCTAssertEqual(candidates.map(\.absoluteString), [url], "\(ext) tek aday olmalı")
+        }
+    }
+
+    /// `AVPlayer`'ın çözemediği konteynerlerde (`.mkv`, `.avi`) HLS yedeği
+    /// denenmeli: aksi halde oynatma hiç başlamaz ve kullanıcı nedensiz hata
+    /// görür. Asıl adres yine ilk sırada kalır, çünkü sağlayıcı konteyneri
+    /// destekliyorsa gereksiz istek gönderilmemelidir.
+    @MainActor
+    func testUnplayableVODContainerFallsBackToHLS() {
+        for ext in ["mkv", "avi", "webm", "flv", "wmv"] {
+            let url = "http://cdn.example.com/movie/user/pass/9.\(ext)"
+            let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
+            XCTAssertEqual(
+                candidates.map(\.absoluteString),
+                [url, "http://cdn.example.com/movie/user/pass/9.m3u8"],
+                "\(ext) için asıl adres önce, HLS yedek sonra denenmeli"
+            )
+        }
     }
 
     /// Uzantısız adres için uydurma adres üretilmemeli.
@@ -97,10 +117,13 @@ final class PlaybackRoutingTests: XCTestCase {
         XCTAssertEqual(XtreamClient.normalizeExtension("HLS"), "m3u8")
     }
 
-    /// Oynatılabilir VOD uzantıları olduğu gibi kalmalı.
+    /// Oynatılabilir VOD uzantıları olduğu gibi kalmalı ve **HLS'e
+    /// çevrilmemeli**. Bu kural bir kez bozulmuştu: normalleştirme tüm
+    /// adresleri HLS'e zorluyordu, böylece film/dizi adresleri sağlayıcının
+    /// sunmadığı bir yola dönüşüyor ve oynatma hiç başlamıyordu.
     func testVideoContainersArePreserved() {
-        for ext in ["mp4", "mkv", "avi", "mov", "webm"] {
-            XCTAssertEqual(XtreamClient.normalizeExtension(ext), ext)
+        for ext in ["mp4", "mkv", "avi", "mov", "webm", "m2ts"] {
+            XCTAssertEqual(XtreamClient.normalizeExtension(ext), ext, "\(ext) korunmalı")
         }
     }
 

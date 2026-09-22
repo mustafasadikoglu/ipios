@@ -372,11 +372,24 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
     /// koşulda oynatılamaz. Sağlayıcı `container_extension` alanında `"ts"`
     /// bildirse bile HLS yolu denenmelidir; aksi halde oynatıcı hata vermeden
     /// siyah ekranda kalır. (Güvenlik ağı — `MIMARI.md` Bölüm 11.)
+    ///
+    /// Ölçüt **uzantının kendisidir**, çağrının türü değil. Daha önce burada
+    /// tüm yayın adresleri HLS'e zorlanıyordu; film ve dizilerde ise
+    /// `container_extension` gerçek video konteynerini (`mkv`, `avi`) bildirir.
+    /// O adresler HLS değildir ve `.m3u8`'e çevrildiğinde sağlayıcının
+    /// sunmadığı bir yol istenmiş olur — oynatma hiç başlamaz ve kullanıcı
+    /// nedensiz bir hata görür. Yalnızca canlı akış biçimleri (`ts`, `mpegts`)
+    /// HLS'e taşınır.
     static func normalizeExtension(_ hint: String?) -> String {
         guard let hint = hint?.lowercased(), !hint.isEmpty else { return hlsExtension }
         switch hint {
-        case "m3u8", "hls", "ts", "mpegts": return hlsExtension
-        case "mp4", "mkv", "avi", "mov", "webm": return hint
+        case "m3u8", "hls": return hlsExtension
+        // Ham MPEG-TS konteyneri HLS paketlemesine çevrilir (canlı yayın).
+        case "ts", "mpegts": return hlsExtension
+        // Video konteynerleri olduğu gibi bırakılır; `AVPlayer` bunları
+        // desteklemiyorsa adres denemesi başarısız olur ve yedek aday devreye
+        // girer (bkz. `AVPlayerEngine.playbackCandidates`).
+        case "mp4", "mkv", "avi", "mov", "webm", "mpg", "mpeg", "m2ts": return hint
         default: return hint.replacingOccurrences(of: ".", with: "")
         }
     }
