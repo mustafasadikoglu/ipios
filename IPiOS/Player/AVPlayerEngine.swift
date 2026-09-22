@@ -774,7 +774,14 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     ///   burada **yoktu**; eski kod çözüp yeniden kodladığı için tur
     ///   gidiş-dönüşü kararlıydı. Bu, ölçülerek elenen bir varsayımdır.
     private static func replacingExtension(of url: URL, with newExtension: String) -> URL? {
-        let encodedPath = url.percentEncodedPath
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        // `URL` üzerinde kodlanmış yol yoktur; `percentEncodedPath`
+        // `URLComponents`'a aittir. (İlk sürümde `url.percentEncodedPath`
+        // yazılmıştı ve derleme CI'da düştü — bu üye `URL`'da bulunmuyor.)
+        let encodedPath = components.percentEncodedPath
         guard let lastSlash = encodedPath.lastIndex(of: "/") else { return nil }
 
         let lastSegment = encodedPath[encodedPath.index(after: lastSlash)...]
@@ -783,9 +790,9 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         guard let dot = lastSegment.lastIndex(of: "."),
               dot != lastSegment.startIndex else { return nil }
 
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.percentEncodedPath = "\(encodedPath[..<dot]).\(newExtension)"
-        return components?.url
+        var updated = components
+        updated.percentEncodedPath = "\(encodedPath[..<dot]).\(newExtension)"
+        return updated.url
     }
 
     private func resumePosition(for item: any MediaItem) -> Double? {
