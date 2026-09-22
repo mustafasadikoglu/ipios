@@ -34,6 +34,14 @@ import urllib.parse
 import urllib.request
 
 
+# IPiOS'un gonderdigi User-Agent. `AVPlayerEngine.startItem` ile ayni olmali.
+IPIOS_UA = "IPiOS/1.0 (iOS)"
+
+# Karsilastirma icin yaygin bir oynatici adi. Bazi saglayicilar bilmedikleri
+# UA'lari engeller; fark cikarsa sorun uygulamada degil sunucu tarafindadir.
+VLC_UA = "VLC/3.0.20 LibVLC/3.0.20"
+
+
 def mask(text, enabled):
     if not enabled:
         return text
@@ -68,12 +76,24 @@ def fetch(url, timeout=25):
 
 
 def head_status(url, timeout=12):
-    """Adres oynatilabilir mi? Sunucuya yalnizca basliklari sorar."""
+    """Adres oynatilabilir mi? Sunucuya yalnizca ilk birkac bayti sorar."""
+    return probe(url, ua=IPIOS_UA, timeout=timeout)
+
+
+def probe(url, ua, timeout=12):
+    """Adresi verilen User-Agent ile dener.
+
+    Iki farkli UA ile denenmesinin nedeni: bazi saglayicilar bilmedikleri
+    uygulama adlarini engeller ve 403 doner. IPiOS kendi UA'sini gonderir
+    ('IPiOS/1.0 (iOS)'); baska bir oynatici (VLC gibi) kendi adini gonderir
+    ve gecer. Bu tam olarak 'baska uygulamada calisiyor, bunda calismiyor'
+    tablosunu uretir. Bu yuzden her adres iki kez denenir.
+    """
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(url, method="GET", headers={
-        "User-Agent": "IPiOS/1.0 (teshis)",
+        "User-Agent": ua,
         "Range": "bytes=0-2047",  # tum dosyayi indirmemek icin
     })
     try:
@@ -238,7 +258,7 @@ def main():
         working = []
         for ext in cand_exts:
             u = f"{base}/movie/{args.user}/{args.password}/{sid}.{ext}"
-            st, ctype = head_status(u)
+            st, ctype = probe(u, ua=IPIOS_UA)
             mark = "OK " if st == 200 else "   "
             out(f"    {mark}{ext:6} -> {st}  {ctype}")
             if st == 200:
@@ -248,14 +268,141 @@ def main():
             if declared and str(declared).lower() not in [w.lower() for w in working]:
                 notes.append(f"film id={sid}: sunucu '{declared}' bildiriyor "
                              f"ama calisan '{working[0]}' -> IPiOS yedekle bulur")
-            if str(declared).lower() not in [w.lower() for w in working] \
-                    and "mp4" not in [w.lower() for w in working]:
-                problems.append(f"film id={sid}: calisan uzanti mp4 DEGIL "
-                                f"({', '.join(working)}) -> IPiOS yedegi yetmez")
         else:
             out("    => Hicbiri 200 donmedi. Bu icerik bu hesapla oynatilamiyor.")
             problems.append(f"film id={sid} icin hicbir uzanti calismadi "
                             f"-> saglayici bu icerigi sunmuyor")
+
+    # --- 5b. User-Agent karsilastirmasi ------------------------------------
+    out("\n[5b] USER-AGENT KARSILASTIRMASI (baska uygulamada calisiyor, bunda calismiyorsa)")
+    out("  Ayni adres iki farkli uygulama adiyla denenir. Bazi saglayicilar")
+    out("  bilmedikleri uygulamayi engeller ve 403 doner; baska bir oynatici")
+    out("  kendi adini gonderdigi icin gecer. Fark cikarsa sorun adres")
+    out("  uretiminde degil, gonderilen uygulama adindadir.")
+    ua_mismatch = False
+    for it in vod_items[: args.sample]:
+        sid = it.get("stream_id") or it.get("id")
+        if sid is None:
+            continue
+        ext = (it.get("container_extension") or "mp4").strip() or "mp4"
+        u = f"{base}/movie/{args.user}/{args.password}/{sid}.{ext}"
+        st_ipios, _ = probe(u, ua=IPIOS_UA)
+        st_vlc, _ = probe(u, ua=VLC_UA)
+        verdict = ""
+        if st_ipios != 200 and st_vlc == 200:
+            verdict = "  <-- IPiOS'un adi ENGELLENIYOR"
+            ua_mismatch = True
+        out(f"  film id={sid} ({ext}): IPiOS->{st_ipios}  diger oynatici->{st_vlc}{verdict}")
+    if ua_mismatch:
+        problems.append("Sunucu IPiOS'un User-Agent'ini engelliyor "
+                        "(baska oynatici adiyla ayni adres 200 donuyor)")
+
+    # --- 5c. Kodek denetimi ------------------------------------------------
+    out("\n[5c] KODEK DENETIMI (AVPlayer'in cozemedigi kodekler)")
+    out("  Dosyanin ilk baytlari indirilip icindeki kodek imzalari aranir.")
+    out("  AVPlayer bazi ses kodeklerini (AC3/EAC3/DTS) COZEMEZ; baska bir")
+    out("  oynatici (VLC gibi, FFmpeg tabanli) bunlari sorunsuz oynatir.")
+    out("  'Baska uygulamada calisiyor ama bunda acilmiyor' tablosunun en")
+    out("  yaygin nedeni budur.")
+
+    VIDEO_CODECS = {
+        "avc1": "H.264 (destekli)", "avc3": "H.264 (destekli)",
+        "hvc1": "HEVC (destekli)", "hev1": "HEVC (destekli)",
+        "vp09": "VP9 (AVPlayer COZEMEZ)", "av01": "AV1 (AVPlayer COZEMEZ)",
+    }
+    AUDIO_CODECS = {
+        "mp4a": "AAC (destekli)", "ac-3": "AC3 (AVPlayer COZEMEZ)",
+        "ec-3": "EAC3 (AVPlayer COZEMEZ)", "dtsc": "DTS (AVPlayer COZEMEZ)",
+        "dtsh": "DTS-HD (AVPlayer COZEMEZ)", "dtsl": "DTS (AVPlayer COZEMEZ)",
+        "opus": "Opus (MP4 icinde AVPlayer COZEMEZ)",
+        "twos": "PCM (destekli)", "sowt": "PCM (destekli)",
+    }
+    BAD = ("COZEMEZ",)
+
+    def sniff(url, label):
+        ctx2 = ssl.create_default_context()
+        ctx2.check_hostname = False
+        ctx2.verify_mode = ssl.CERT_NONE
+        req2 = urllib.request.Request(url, method="GET", headers={
+            "User-Agent": IPIOS_UA,
+            "Range": "bytes=0-524287",
+        })
+        try:
+            with urllib.request.urlopen(req2, timeout=25, context=ctx2) as r:
+                head = r.read()
+                ctype = r.headers.get("Content-Type", "?")
+                clen = r.headers.get("Content-Length", "?")
+                crange = r.headers.get("Content-Range", "-")
+                accepts_ranges = r.headers.get("Accept-Ranges", "?")
+        except Exception as e:
+            out(f"  {label}: indirilemedi ({str(e)[:50]})")
+            return
+
+        out(f"  {label}")
+        out(f"     Content-Type   : {ctype}")
+        out(f"     Content-Length  : {clen}   Content-Range: {crange}")
+        out(f"     Accept-Ranges   : {accepts_ranges}")
+        out(f"     indirilen       : {len(head)} bayt")
+
+        magic = head[:12]
+        if magic[4:8] == b"ftyp":
+            brand = magic[8:12].decode("ascii", "replace")
+            out(f"     konteyner      : MP4 (marka: {brand})")
+        elif magic[0:1] == b"\x1a\x45\xdf\xa3"[:1] or head[:4] == b"\x1a\x45\xdf\xa3":
+            out("     konteyner      : Matroska/WebM (AVPlayer COZEMEZ)")
+            problems.append(f"{label}: dosya MKV/WebM — AVPlayer bu konteyneri cozemez")
+        elif magic[:3] == b"ID3" or magic[0] == 0xFF:
+            out("     konteyner      : MPEG audio")
+        elif b"ftyp" in head[:200]:
+            out("     konteyner      : MP4 (ftyp ileride)")
+        else:
+            out(f"     konteyner      : taninmadi (ilk baytlar: {magic.hex()})")
+            if b"<html" in head[:1024].lower() or b"<!doctype" in head[:1024].lower():
+                out("     !! Sunucu VIDEO yerine HTML SAYFASI donduruyor.")
+                problems.append(f"{label}: sunucu video yerine HTML sayfasi donduruyor")
+            return
+
+        low = head.lower()
+        found_v = [k for k in VIDEO_CODECS if k.encode() in low]
+        found_a = [k for k in AUDIO_CODECS if k.encode() in low]
+
+        if found_v:
+            out("     goruntu kodegi : " + ", ".join(
+                f"{k} [{VIDEO_CODECS[k]}]" for k in found_v))
+        else:
+            out("     goruntu kodegi : bulunamadi (moov sonda olabilir)")
+        if found_a:
+            out("     ses kodegi     : " + ", ".join(
+                f"{k} [{AUDIO_CODECS[k]}]" for k in found_a))
+        else:
+            out("     ses kodegi     : bulunamadi (moov sonda olabilir)")
+
+        bad_v = [k for k in found_v if k in ("vp09", "av01")]
+        bad_a = [k for k in found_a if AUDIO_CODECS.get(k, "").endswith("COZEMEZ)")]
+        if bad_v:
+            problems.append(f"{label}: goruntu kodegi {', '.join(bad_v)} — "
+                            f"AVPlayer cozemez, bu yuzden 'Oynatma baslatilamadi' cikar")
+        if bad_a:
+            problems.append(f"{label}: ses kodegi {', '.join(bad_a)} — "
+                            f"AVPlayer cozemez (goruntulu dosyalarda ses sarttir)")
+        if not bad_v and not bad_a and (found_v or found_a):
+            out("     => AVPlayer bu dosyayi cozebilmeli. Sorun kodekte degil.")
+
+    # Yalnizca 200 donen ilk adres uzerinde denenir.
+    sniffed = False
+    for it in vod_items[: args.sample]:
+        sid = it.get("stream_id") or it.get("id")
+        if sid is None:
+            continue
+        ext = (it.get("container_extension") or "mp4").strip() or "mp4"
+        u = f"{base}/movie/{args.user}/{args.password}/{sid}.{ext}"
+        st, _ = probe(u, ua=IPIOS_UA)
+        if st == 200:
+            sniff(u, f"film id={sid} (.{ext})")
+            sniffed = True
+            break
+    if not sniffed:
+        out("  Denenecek acik adres bulunamadi.")
 
     # --- 6. Dizi ornegi ----------------------------------------------------
     out("\n[6] DIZI BOLUM ADRESI DENEMESI")
