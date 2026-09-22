@@ -373,4 +373,66 @@ final class PlaybackDiagnosticsTests: XCTestCase {
             "AVURLAssetHTTPHeaderFieldsKey"
         )
     }
+
+    /// Hiç iz bulunamayan bir taşıyıcı "okunamadı" sayılmalıdır.
+    ///
+    /// Neden gerekli: sağlayıcı filmleri **yalnızca MKV** olarak sunuyor
+    /// (2026-09-22'de gerçek hesapla ölçüldü). AVFoundation'ın Matroska
+    /// demuxer'ı olmadığı için bu dosya oynatılamaz. Ancak `load(.tracks)`
+    /// tanınmayan taşıyıcıda kimi zaman hata **fırlatmaz**, boş bir liste
+    /// döndürür. Ölçüt yalnızca "çağrı hata verdi mi" olsaydı:
+    ///
+    ///   inspection.isReadable == true, iki kodek listesi de boş
+    ///   → kodek dalları atlanır
+    ///   → 4. adım (`!isReadable`) atlanır
+    ///   → 5. adıma düşülür ve `.unknown` döner
+    ///
+    /// sonuçta kullanıcı tam olarak üç turdur teşhis edilemeyen "Oynatma
+    /// başlatılamadı." metnini görür. Bu test o kapıyı kapatır: sıfır iz,
+    /// "okunamadı" demektir ve konteyner mesajı çıkar.
+    func testEmptyTrackListCountsAsUnreadable() {
+        let empty = inspection(readable: false)
+        let failure = PlaybackDiagnostics.classify(
+            error: nil, timedOut: false, inspection: empty, extensionHint: "mkv"
+        )
+        guard case .unrecognizedContainer(let hint) = failure.kind else {
+            return XCTFail("sıfır iz 'okunamadı' sayılmalıydı, gelen: \(failure.kind)")
+        }
+        XCTAssertEqual(hint, "mkv")
+    }
+
+    /// Gerçek bir EBML (MKV) dosyası gerçekten okunamamalı.
+    ///
+    /// Yukarıdaki test ölçütü **verilen** bir `StreamInspection` üzerinde
+    /// doğrular; bu test ise `inspect()`'in kendisinin o sonucu ürettiğini
+    /// gösterir. Sağlayıcının döndürdüğü baytlar taklit edilir: EBML imzası
+    /// (`1A 45 DF A3`) ve ardından anlamsız gövde. Amaç dosyanın oynatılması
+    /// değil, AVFoundation'ın ondan **oynatılabilir iz çıkaramadığının**
+    /// doğrulanmasıdır.
+    func testRealEBMLFileYieldsNoPlayableTrack() async throws {
+        let ebml: [UInt8] = [0x1A, 0x45, 0xDF, 0xA3]
+            + Array(repeating: 0x00, count: 2044)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ipios-\(UUID().uuidString).mkv")
+        try Data(ebml).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let measured = await PlaybackDiagnostics.inspect(url, timeout: 5)
+
+        XCTAssertFalse(
+            measured.isReadable,
+            "MKV taşıyıcısından oynatılabilir iz çıkmamalı"
+        )
+        XCTAssertTrue(measured.audioCodecs.isEmpty)
+        XCTAssertTrue(measured.videoCodecs.isEmpty)
+
+        // Uçtan uca: bu ölçüm kullanıcıya gerçek nedeni göstermelidir.
+        let failure = PlaybackDiagnostics.classify(
+            error: nil, timedOut: false, inspection: measured, extensionHint: "mkv"
+        )
+        guard case .unrecognizedContainer = failure.kind else {
+            return XCTFail("MKV için konteyner nedeni beklenirdi, gelen: \(failure.kind)")
+        }
+    }
 }

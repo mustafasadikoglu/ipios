@@ -364,8 +364,10 @@ enum PlaybackDiagnostics {
     ///
     /// Önemli ayrım: konteyner **çözülebildiği** hâlde oynatma başarısız
     /// olabilir (MP4 + AC3). Bu durumda `isReadable` doğrudur ve kodek listesi
-    /// gerçek suçluyu verir. Konteyner hiç çözülemiyorsa (MKV) `load` hata
-    /// verir ve `isReadable` yanlış kalır.
+    /// gerçek suçluyu verir. Konteyner hiç çözülemiyorsa (MKV) `isReadable`
+    /// yanlış kalır — `load` ya hata verir **ya da boş bir iz listesi döndürür**;
+    /// ikisi de aynı sonuca bağlanır, çünkü kullanıcı açısından ikisi de
+    /// "oynatılabilir bir iz yok" demektir.
     ///
     /// - Parameter timeout: Ölçüm için azami bekleme. Ağ yanıt vermezse
     ///   kullanıcıyı bekletmemek için ölçümden vazgeçilir.
@@ -387,9 +389,8 @@ enum PlaybackDiagnostics {
 
         do {
             let tracks = try await asset.load(.tracks)
-            var inspection = StreamInspection()
-            inspection.isReadable = true
 
+            var inspection = StreamInspection()
             for track in tracks {
                 let descriptions = try await track.load(.formatDescriptions)
                 for description in descriptions {
@@ -405,6 +406,19 @@ enum PlaybackDiagnostics {
 
             inspection.audioCodecs = dedupe(inspection.audioCodecs)
             inspection.videoCodecs = dedupe(inspection.videoCodecs)
+
+            // `isReadable` "çağrı hata vermedi" değil, **"oynatılabilir iz
+            // bulundu"** demektir.
+            //
+            // Ayrım kritik: AVFoundation tanımadığı bir taşıyıcıda (ör. MKV)
+            // kimi zaman hata **fırlatmaz**, boş bir iz listesi döndürür.
+            // Yalnızca `try` başarısına bakan bir ölçüt o durumda `isReadable`
+            // bırakır, sınıflandırma kodek dallarını atlar, ardından 5. adıma
+            // düşer ve kullanıcı yine teşhis edilemeyen "Oynatma
+            // başlatılamadı." metnini görür — üç turdur çözülemeyen tablonun
+            // ta kendisi.
+            inspection.isReadable = !(inspection.audioCodecs.isEmpty
+                                      && inspection.videoCodecs.isEmpty)
             return inspection
         } catch {
             // Taşıyıcı okunamadı. Bu **bir sonuçtur**, hata değil: çağıran
