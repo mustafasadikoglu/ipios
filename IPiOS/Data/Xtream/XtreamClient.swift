@@ -73,10 +73,21 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
             if let categoryID, let catID, catID != categoryID { return nil }
 
             let name = dto.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Canlı yayında uzantı **her zaman** `m3u8`'dir; `stream_type`
+            // alanı kullanılmaz.
+            //
+            // Neden: Xtream `stream_type` alanı canlı yayınlar için tipik olarak
+            // `"ts"` değerini taşır ve `/live/<user>/<pass>/<id>.ts` ham bir
+            // MPEG-TS akışıdır. `AVPlayer` ham TS konteynerini çözemez — yalnızca
+            // HLS paketlemesi içindeki TS parçalarını oynatabilir. `.ts` adresi
+            // verildiğinde oynatıcı hata vermeden siyah ekranda kalıyordu.
+            // Sunucular aynı yayını HLS olarak da sunduğu için `.m3u8` istenir.
+            // (`MIMARI.md` Bölüm 11 — sağlayıcı tutarsızlığı.)
             guard let streamURL = makeStreamURL(
                 streamID: id,
                 type: "live",
-                extensionHint: dto.stream_type
+                extensionHint: Self.hlsExtension
             ) else { return nil }
 
             return Channel(
@@ -348,12 +359,23 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
         return components?.url
     }
 
+    /// Canlı yayın adreslerinde kullanılan uzantı.
+    ///
+    /// Sabit olarak `m3u8` seçilir; gerekçesi `channels(categoryID:)` içindeki
+    /// açıklamada (bkz. ham MPEG-TS notu).
+    static let hlsExtension = "m3u8"
+
     /// `m3u8`/`ts`/`mp4` gibi uzantıyı normalize eder.
+    ///
+    /// `ts` bilinçli olarak `m3u8`'e çevrilir: `AVPlayer` ham MPEG-TS
+    /// konteynerini çözemez, dolayısıyla `.ts` uzantılı bir adres hiçbir
+    /// koşulda oynatılamaz. Sağlayıcı `container_extension` alanında `"ts"`
+    /// bildirse bile HLS yolu denenmelidir; aksi halde oynatıcı hata vermeden
+    /// siyah ekranda kalır. (Güvenlik ağı — `MIMARI.md` Bölüm 11.)
     static func normalizeExtension(_ hint: String?) -> String {
-        guard let hint = hint?.lowercased(), !hint.isEmpty else { return "m3u8" }
+        guard let hint = hint?.lowercased(), !hint.isEmpty else { return hlsExtension }
         switch hint {
-        case "m3u8", "hls": return "m3u8"
-        case "ts", "mpegts": return "ts"
+        case "m3u8", "hls", "ts", "mpegts": return hlsExtension
         case "mp4", "mkv", "avi", "mov", "webm": return hint
         default: return hint.replacingOccurrences(of: ".", with: "")
         }

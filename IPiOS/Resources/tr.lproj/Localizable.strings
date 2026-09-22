@@ -175,6 +175,7 @@
 "player.error.retry"            = "Tekrar Dene";
 "player.error.unknown"          = "Bilinmeyen bir nedenle yayın açılamadı.";
 "player.error.startFailed"      = "Oynatma başlatılamadı.";
+"player.error.timeout"       = "Yayın zaman aşımına uğradı. Bağlantınızı kontrol edip tekrar deneyin.";
 "player.error.interrupted"      = "Yayın kesildi.";
 "player.resumed"                = "Kaldığınız yerden devam ediliyor";
 "player.buffering"              = "Tamponlanıyor…";

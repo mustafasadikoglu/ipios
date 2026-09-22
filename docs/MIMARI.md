@@ -102,6 +102,7 @@ ipios/
 │   ├── M3UParserTests.swift
 │   ├── XMLTVDateTests.swift
 │   ├── CoreUtilitiesTests.swift
+│   ├── PlaybackRoutingTests.swift
 │   └── LocalizationTests.swift
 └── IPiOS/
     ├── App/                          # uygulama girişi ve kök akış

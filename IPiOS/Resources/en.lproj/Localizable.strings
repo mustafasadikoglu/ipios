@@ -175,6 +175,7 @@
 "player.error.retry"            = "Try Again";
 "player.error.unknown"          = "The stream could not be opened for an unknown reason.";
 "player.error.startFailed"      = "Playback could not be started.";
+"player.error.timeout"       = "The stream timed out. Check your connection and try again.";
 "player.error.interrupted"      = "The stream was interrupted.";
 "player.resumed"                = "Resuming from where you left off";
 "player.buffering"              = "Buffering…";

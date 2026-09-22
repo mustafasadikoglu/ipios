@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AVKit
+import Combine
 
 /// Oynatıcı ekranının durumu.
 ///
@@ -19,10 +20,30 @@ final class PlayerViewModel: ObservableObject {
     let engine: AVPlayerEngine
     private let environment: AppEnvironment
     private var controlsTask: Task<Void, Never>?
+    private var stateSubscription: AnyCancellable?
 
     init(environment: AppEnvironment) {
         self.environment = environment
         self.engine = environment.player
+        observeEngineState()
+    }
+
+    /// Motorun durumunu gerçek zamanlı izler.
+    ///
+    /// Neden gerekli: oynatma hatası `load()` dönmeden çok sonra, ağ yanıtı
+    /// geldiğinde ortaya çıkar. Bu abonelik olmadan hata sessizce yutulur ve
+    /// kullanıcı siyah ekranda kalırdı (önceki sürümdeki asıl kusur buydu:
+    /// hata durumu yalnızca `load()` döndükten hemen sonra kontrol ediliyordu).
+    ///
+    /// Yalnızca `state` yayınına abone olunur; teşhis bayrağı
+    /// (`lastFailureWasUnsupportedFormat`) motorda durum atamasından **önce**
+    /// yazıldığı için burada güncel değeri okunur.
+    private func observeEngineState() {
+        stateSubscription = engine.$state
+            .removeDuplicates()
+            .sink { [weak self] state in
+                self?.handleStateChange(state)
+            }
     }
 
     var isPlaying: Bool { engine.state.isPlaying }
@@ -42,15 +63,14 @@ final class PlayerViewModel: ObservableObject {
     func play(_ item: PlayableItem) async {
         guard let playable = item.playable else { return }
         self.item = item
-        showsErrorAlert = false
+        resetErrorState()
 
         // Kaydedilmiş konum varsa oradan devam edilir.
         let position = environment.recents.position(for: playable)
         await engine.load(playable, startAt: position?.seconds)
-
-        if case .failed = engine.state {
-            showsErrorAlert = true
-        }
+        // Hata bildirimi burada kontrol edilmez: `load` döndükten sonra da
+        // ortaya çıkabilir. Durum aboneliği (`observeEngineState`) hatayı
+        // yakalar ve `handleStateChange` uyarıyı gösterir.
     }
 
     func retry() async {
@@ -114,10 +134,27 @@ final class PlayerViewModel: ObservableObject {
 
     // MARK: - Hata
 
-    func handleStateChange() {
-        switch engine.state {
-        case .failed: showsErrorAlert = true
-        default: break
+    /// Hata uyarısını sıfırlar. Yeni bir öğe yüklenirken eski hatanın ekranda
+    /// kalmasını engeller.
+    private func resetErrorState() {
+        showsErrorAlert = false
+        showsTSWarning = false
+    }
+
+    /// Durum aboneliğinden çağrılır.
+    ///
+    /// Ham MPEG-TS hatası ayrı bir uyarıyla bildirilir: kullanıcı için anlamlı
+    /// olan "bu yayın biçimi desteklenmiyor" mesajıdır, teknik ayrıntı değil.
+    ///
+    /// Ayrım, motorun teşhis bayrağıyla yapılır; hata metnini karşılaştırmak
+    /// yerelleştirmeye bağlı olarak kırılgan olurdu (bkz.
+    /// `AVPlayerEngine.lastFailureWasUnsupportedFormat`).
+    private func handleStateChange(_ state: PlaybackState) {
+        guard case .failed = state else { return }
+        if engine.lastFailureWasUnsupportedFormat {
+            showsTSWarning = true
+        } else {
+            showsErrorAlert = true
         }
     }
 }
