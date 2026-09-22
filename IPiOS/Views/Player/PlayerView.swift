@@ -63,9 +63,17 @@ private struct PlayerContent: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
+            // Görüntü **her zaman** oranı korunarak sığdırılır.
+            //
+            // Canlı yayında daha önce `.resizeAspectFill` kullanılıyordu: bu
+            // kip ekranı doldurur ama taşan kenarları **kırpar**, yani yayının
+            // bir kısmı hiç görünmez (kanal logoları, alt bantlar, skor
+            // tabelaları kesilir). Kullanıcı bunu "ekran uzamış, görüntü
+            // sığmıyor" olarak bildirdi. Canlı ile VOD arasında davranış farkı
+            // olması da beklenmedikti; tek kip kullanılır.
             VideoSurfaceView(
                 player: viewModel.engine.player,
-                videoGravity: viewModel.isLive ? .resizeAspectFill : .resizeAspect,
+                videoGravity: .resizeAspect,
                 onLayerReady: { layer in
                     // Katman `makeUIView` sırasında bildirilir; SwiftUI güncelleme
                     // döngüsünün ortasında durum yazmamak için bir sonraki tur beklenir.

@@ -75,14 +75,17 @@ enum XtreamDTO {
         let category_id: FlexibleString?
         let container_extension: String?
         let plot: String?
-        let cast: String?
-        let director: String?
-        let genre: String?
-        let releaseDate: String?
+        // Bu dört alan paneller arasında en tutarsız olanlardır: `cast` ve
+        // `director` sık sık dizi olarak, `youtube_trailer` bazen sayı olarak
+        // gelir. `FlexibleString` her iki biçimi de karşılar.
+        let cast: FlexibleString?
+        let director: FlexibleString?
+        let genre: FlexibleString?
+        let releaseDate: FlexibleString?
         let duration: FlexibleString?
         let year: FlexibleString?
         let tmdb: FlexibleString?
-        let youtube_trailer: String?
+        let youtube_trailer: FlexibleString?
     }
 
     struct VODInfoResponse: Decodable {
@@ -90,9 +93,9 @@ enum XtreamDTO {
             let movie_image: String?
             let plot: String?
             let duration: FlexibleString?
-            let genre: String?
+            let genre: FlexibleString?
             let rating: FlexibleString?
-            let releaseDate: String?
+            let releaseDate: FlexibleString?
             let year: FlexibleString?
         }
         struct MovieData: Decodable {
@@ -113,16 +116,17 @@ enum XtreamDTO {
         let series_id: FlexibleInt?
         let cover: String?
         let plot: String?
-        let cast: String?
-        let director: String?
-        let genre: String?
+        // Film DTO'sundaki aynı gerekçe: bu alanlar dizi/sayı olarak da gelir.
+        let cast: FlexibleString?
+        let director: FlexibleString?
+        let genre: FlexibleString?
         let releaseDate: FlexibleString?
         let last_modified: FlexibleString?
         let rating: FlexibleString?
         let rating_5based: FlexibleDouble?
         let backdrop_path: [String]?
-        let youtube_trailer: String?
-        let episode_run_time: String?
+        let youtube_trailer: FlexibleString?
+        let episode_run_time: FlexibleString?
         let category_id: FlexibleString?
     }
 
@@ -150,10 +154,10 @@ enum XtreamDTO {
             let name: String?
             let cover: String?
             let plot: String?
-            let genre: String?
+            let genre: FlexibleString?
             let releaseDate: FlexibleString?
             let rating: FlexibleString?
-            let cast: String?
+            let cast: FlexibleString?
         }
 
         let seasons: [SeasonDTO]?
@@ -231,6 +235,14 @@ struct FlexibleDouble: Decodable, Hashable {
 }
 
 /// Her zaman string beklenen ama sayı da gelebilen alan.
+///
+/// Ayrıca **dizi** de kabul edilir: Xtream panelleri `cast`, `director` ve
+/// `genre` gibi alanları sık sık `["A", "B"]` biçiminde döndürür. Bu alanlar
+/// `String?` olarak tanımlıyken tek bir panel çıktısı tüm yanıtın
+/// çözümlemesini düşürüyordu; sonuç, film ve dizi listelerinin hiç
+/// yüklenmemesiydi (canlı yayın listesi çalışmaya devam ediyordu, çünkü
+/// `LiveStreamDTO` bu alanları hiç istemez). Dizi geldiğinde öğeler
+/// birleştirilir.
 struct FlexibleString: Decodable, Hashable {
     let value: String?
 
@@ -246,6 +258,9 @@ struct FlexibleString: Decodable, Hashable {
             value = String(double)
         } else if let bool = try? container.decode(Bool.self) {
             value = String(bool)
+        } else if let list = try? container.decode([FlexibleString].self) {
+            let items = list.compactMap(\.value).filter { !$0.isEmpty }
+            value = items.isEmpty ? nil : items.joined(separator: ", ")
         } else {
             value = nil
         }

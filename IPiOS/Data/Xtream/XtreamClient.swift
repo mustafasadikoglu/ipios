@@ -116,7 +116,11 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
             if let categoryID, let catID, catID != categoryID { return nil }
 
             let name = dto.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let ext = dto.container_extension ?? "mp4"
+            // `??` burada yetmez: panel alanı boş string olarak da gönderebilir
+            // ve `normalizeExtension("")` HLS'e düşer, yani film adresi
+            // `/movie/.../id.m3u8` olur — sağlayıcının VOD için sunmadığı bir
+            // yol. Boş değer de varsayılana çevrilir.
+            let ext = dto.container_extension?.nilIfEmpty ?? "mp4"
             guard let streamURL = makeStreamURL(streamID: id, type: "movie", extensionHint: ext) else {
                 return nil
             }
@@ -131,10 +135,10 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
                 categoryName: catID.flatMap { nameByID[$0] },
                 plot: dto.plot?.nilIfEmpty,
                 year: dto.year?.stringValue?.nilIfEmpty
-                    ?? dto.releaseDate?.nilIfEmpty.map { String($0.prefix(4)) },
+                    ?? dto.releaseDate?.nonEmpty.map { String($0.prefix(4)) },
                 durationSeconds: Self.parseDuration(dto.duration?.nonEmpty),
                 rating: dto.rating?.nonEmpty,
-                genre: dto.genre?.nilIfEmpty,
+                genre: dto.genre?.nonEmpty,
                 containerExtension: dto.container_extension,
                 order: dto.num?.intValue ?? index
             )
@@ -162,7 +166,7 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
                 plot: dto.plot?.nilIfEmpty,
                 year: dto.releaseDate?.nonEmpty.map { String($0.prefix(4)) },
                 rating: dto.rating?.nonEmpty,
-                genre: dto.genre?.nilIfEmpty,
+                genre: dto.genre?.nonEmpty,
                 lastModified: Self.parseTimestamp(dto.last_modified?.nonEmpty),
                 order: dto.num?.intValue ?? index
             )
@@ -185,7 +189,7 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
             plot: response.info?.plot?.nilIfEmpty,
             year: response.info?.releaseDate?.nonEmpty.map { String($0.prefix(4)) },
             rating: response.info?.rating?.nonEmpty,
-            genre: response.info?.genre?.nilIfEmpty
+            genre: response.info?.genre?.nonEmpty
         )
 
         // `episodes` sözlüğü: sezon numarası (string) -> bölüm dizisi.
@@ -195,7 +199,8 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
 
             let episodes: [Episode] = episodeDTOs.compactMap { dto in
                 guard let id = dto.id?.stringValue else { return nil }
-                let ext = dto.container_extension ?? "mp4"
+                // Bölümlerde de aynı kural: boş alan HLS'e düşmemeli.
+                let ext = dto.container_extension?.nilIfEmpty ?? "mp4"
                 guard let streamURL = makeStreamURL(
                     streamID: id,
                     type: "series",
@@ -321,9 +326,17 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
             await cache.store(result, for: cacheKey)
             return result
         } catch let error as AppError {
-            // Xtream yanlış kimlik bilgisinde bazen HTTP 200 + `{"user_info":...}` yerine
-            // boş gövde döner; bunu kimlik hatası olarak raporlarız.
-            if case .decoding = error {
+            // Xtream yanlış kimlik bilgisinde bazen HTTP 200 + `{"user_info":...}`
+            // yerine boş gövde döner; bunu kimlik hatası olarak raporlarız.
+            //
+            // Ancak bu çevrim **yalnızca kimlik isteğinde** doğrudur. İçerik
+            // isteklerinde (`get_vod_streams`, `get_series`) çözümleme hatası
+            // sağlayıcının alan tutarsızlığından kaynaklanır ve kullanıcıya
+            // "şifreniz yanlış" demek yanıltıcı olurdu: canlı yayın listesi
+            // aynı kimlikle sorunsuz geliyor, film listesi gelmiyor, ekranda
+            // ise kimlik hatası yazıyordu. Ayırt etmeksizin çevirmek, gerçek
+            // nedeni (bozuk yanıt şeması) tamamen gizler.
+            if case .decoding = error, action == nil {
                 throw AppError.badCredentials
             }
             throw error

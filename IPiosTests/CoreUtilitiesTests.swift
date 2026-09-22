@@ -44,6 +44,75 @@ final class CoreUtilitiesTests: XCTestCase {
         XCTAssertEqual(try decode(FlexibleString.self, "true").value, "true")
     }
 
+    /// Xtream panelleri `cast`, `director` ve `genre` alanlarını sık sık dizi
+    /// olarak döndürür. Bu alanlar `String?` iken tek bir yanıt tüm film/dizi
+    /// listesinin çözümlenmesini düşürüyordu; öğeler birleştirilerek okunur.
+    func testFlexibleStringFromArrayJoinsElements() throws {
+        XCTAssertEqual(
+            try decode(FlexibleString.self, #"["Ali Veli", "Ayşe Kaya"]"#).value,
+            "Ali Veli, Ayşe Kaya"
+        )
+    }
+
+    /// Boş dizi `nil` olur; ekranda boş bir tür etiketi çizilmez.
+    func testFlexibleStringFromEmptyArrayIsNil() throws {
+        XCTAssertNil(try decode(FlexibleString.self, "[]").value)
+    }
+
+    /// Dizi öğeleri dize olmayabilir (bazı paneller sayı gönderir).
+    func testFlexibleStringFromMixedArray() throws {
+        XCTAssertEqual(try decode(FlexibleString.self, "[1975, \"Dram\"]").value, "1975, Dram")
+    }
+
+    /// Dizi içindeki boş dizeler atlanır; sonuç "A, , B" olmamalı.
+    func testFlexibleStringFromArraySkipsEmptyElements() throws {
+        XCTAssertEqual(try decode(FlexibleString.self, #"["A", "", "B"]"#).value, "A, B")
+    }
+
+    /// İç içe dizi gibi çözülemeyen bir değer çökme yerine `nil` verir.
+    func testFlexibleStringFromUnsupportedValueIsNil() throws {
+        XCTAssertNil(try decode(FlexibleString.self, #"{"a": 1}"#).value)
+    }
+
+    /// VOD yanıtı, alanları dizi olarak döndüren bir panelle de çözülebilmeli.
+    ///
+    /// Bu, film/dizi listelerinin boş gelmesine yol açan asıl kusurun
+    /// regresyon testidir: `get_vod_streams` gövdesinin tamamı tek bir alan
+    /// yüzünden düşüyordu.
+    func testVODResponseDecodesWhenCastIsAnArray() throws {
+        let json = """
+        [{
+            "num": 1,
+            "name": "Örnek Film",
+            "stream_id": 9,
+            "container_extension": "mp4",
+            "cast": ["Ali Veli", "Ayşe Kaya"],
+            "director": ["Yönetmen"],
+            "genre": ["Dram", "Gerilim"],
+            "releaseDate": "1975-01-01"
+        }]
+        """
+        let list = try decode([XtreamDTO.VODStreamDTO].self, json)
+        XCTAssertEqual(list.count, 1)
+        XCTAssertEqual(list[0].cast?.value, "Ali Veli, Ayşe Kaya")
+        XCTAssertEqual(list[0].genre?.value, "Dram, Gerilim")
+    }
+
+    /// Aynı tolerans dizi listesi (`get_series`) için de geçerli.
+    func testSeriesResponseDecodesWhenCastIsAnArray() throws {
+        let json = """
+        [{
+            "series_id": 5,
+            "name": "Örnek Dizi",
+            "cast": ["Oyuncu"],
+            "genre": ["Komedi"]
+        }]
+        """
+        let list = try decode([XtreamDTO.SeriesDTO].self, json)
+        XCTAssertEqual(list.count, 1)
+        XCTAssertEqual(list[0].genre?.value, "Komedi")
+    }
+
     // MARK: - FlexibleDouble
 
     /// Bazı Avrupa panelleri ondalık ayırıcı olarak virgül gönderir.

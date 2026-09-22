@@ -68,21 +68,45 @@ final class PlaybackRoutingTests: XCTestCase {
         }
     }
 
-    /// `AVPlayer`'ın çözemediği konteynerlerde (`.mkv`, `.avi`) HLS yedeği
+    /// `AVPlayer`'ın çözemediği konteynerlerde (`.mkv`, `.avi`) `mp4` yedeği
     /// denenmeli: aksi halde oynatma hiç başlamaz ve kullanıcı nedensiz hata
     /// görür. Asıl adres yine ilk sırada kalır, çünkü sağlayıcı konteyneri
     /// destekliyorsa gereksiz istek gönderilmemelidir.
+    ///
+    /// Yedeğin **HLS değil `mp4`** olduğu ayrıca doğrulanır: Xtream VOD içeriği
+    /// için `.m3u8` yolu yoktur, dolayısıyla HLS yedeği her zaman boşa giden bir
+    /// deneme olurdu. (Bu kural bir kez yanlış yazılmıştı.)
     @MainActor
-    func testUnplayableVODContainerFallsBackToHLS() {
+    func testUnplayableVODContainerFallsBackToMP4() {
         for ext in ["mkv", "avi", "webm", "flv", "wmv"] {
             let url = "http://cdn.example.com/movie/user/pass/9.\(ext)"
             let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
             XCTAssertEqual(
                 candidates.map(\.absoluteString),
-                [url, "http://cdn.example.com/movie/user/pass/9.m3u8"],
-                "\(ext) için asıl adres önce, HLS yedek sonra denenmeli"
+                [url, "http://cdn.example.com/movie/user/pass/9.mp4"],
+                "\(ext) için asıl adres önce, mp4 yedek sonra denenmeli"
+            )
+            XCTAssertFalse(
+                candidates.contains { $0.pathExtension == "m3u8" },
+                "VOD'da HLS yedeği üretilmemeli — Xtream o yolu sunmaz"
             )
         }
+    }
+
+    /// Sorgu dizesi yedek adrese de taşınmalı; düşerse sağlayıcı isteği reddeder.
+    @MainActor
+    func testVODFallbackPreservesQueryString() {
+        let candidates = AVPlayerEngine.playbackCandidates(
+            for: item("http://cdn.example.com/movie/user/pass/9.mkv?token=abc"),
+            isLive: false
+        )
+        XCTAssertEqual(
+            candidates.map(\.absoluteString),
+            [
+                "http://cdn.example.com/movie/user/pass/9.mkv?token=abc",
+                "http://cdn.example.com/movie/user/pass/9.mp4?token=abc"
+            ]
+        )
     }
 
     /// Uzantısız adres için uydurma adres üretilmemeli.

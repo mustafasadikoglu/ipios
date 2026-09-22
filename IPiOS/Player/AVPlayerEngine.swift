@@ -599,14 +599,21 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
             return candidates
         }
 
-        // VOD: yalnızca doğrudan çözülemeyen konteynerler için yedek üretilir.
+        // VOD: yalnızca `AVPlayer`'ın çözemediği konteynerler için yedek üretilir.
+        //
+        // Yedek olarak **HLS değil `mp4`** denenir. Xtream VOD içeriğini HLS
+        // paketlemesiyle sunmaz; `/movie/<user>/<pass>/<id>.m3u8` diye bir yol
+        // yoktur. Buna karşılık tek bir konteyner uzantısı bildirip dosyayı
+        // farklı uzantıyla sunan paneller yaygındır — `container_extension`
+        // "mkv" derken adresin `.mp4` olarak da çalıştığı sık görülür. Bu
+        // yüzden yedek, oynatılabilir tek biçim olan `.mp4`'tür.
         let ext = primary.pathExtension.lowercased()
         guard Self.unplayableContainers.contains(ext) else { return [primary] }
 
-        guard let hls = replacingExtension(of: primary, with: "m3u8") else {
+        guard let mp4 = replacingExtension(of: primary, with: "mp4") else {
             return [primary]
         }
-        return [primary, hls]
+        return [primary, mp4]
     }
 
     /// `AVPlayer`'ın doğrudan çözemediği video konteynerleri.
