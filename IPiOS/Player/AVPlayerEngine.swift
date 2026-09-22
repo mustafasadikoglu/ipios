@@ -342,6 +342,24 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     }
 
     func stop() {
+        // VOD konumu **temizlemeden önce** yakalanır.
+        //
+        // Neden: `persistPosition()` çağrıldığında `currentItem` ve
+        // `currentTime` henüz yerindeyse kayıt yapılabilir; ama `stop()`
+        // bunları hemen aşağıda sıfırlar. Dışarıdan `Task { await
+        // persistPosition() }` şeklinde çağrıldığında görev ana aktör
+        // kuyruğunda beklerken `stop()` çoktan çalışmış olur ve kayıt
+        // `guard let item = currentItem` satırında düşer. Sonuç: film
+        // yarıda kapatıldığında konum hiç saklanmaz ve "kaldığı yerden
+        // devam" çalışmaz. Bu yüzden değerler burada alınır ve yazma işi
+        // arka planda yapılır.
+        let pendingPosition: (any MediaItem, Double, Double?)?
+        if !isLive, currentTime > 0, let item = currentItem {
+            pendingPosition = (item, currentTime, duration)
+        } else {
+            pendingPosition = nil
+        }
+
         player.pause()
         player.replaceCurrentItem(with: nil)
         removeObservers()
@@ -364,6 +382,17 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         didResumeFromSavedPosition = false
         didFailOnUnsupportedFormat = false
         currentItem = nil
+
+        // Yakalanan konum, durum temizlendikten sonra yazılır.
+        if let (savedItem, savedSeconds, savedDuration) = pendingPosition {
+            Task { [recents] in
+                await recents?.savePosition(
+                    for: savedItem,
+                    seconds: savedSeconds,
+                    duration: savedDuration
+                )
+            }
+        }
     }
 
     func seek(by seconds: Double) {
@@ -576,13 +605,11 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     /// denenir; sağlayıcı HLS sunmuyorsa ham TS'e düşülür ve oynatıcı hata
     /// verirse durum kullanıcıya bildirilir.
     ///
-    /// VOD ve dizilerde uzantı sağlayıcının bildirdiği konteynerdir. `AVPlayer`
-    /// bunların hepsini çözemez (`.mkv`, `.avi`, `.webm` desteklenmez); bu
-    /// yüzden tek adayla yetinmek yerine uzantının **okunabilir** olup
-    /// olmadığına bakılır: çözülemeyen ve HLS'e çevrilebilir bir konteyner
-    /// (`.mkv` gibi) için `.m3u8` yedeği eklenir. Sağlayıcı aynı içeriği HLS
-    /// olarak sunuyorsa oynatma yine de başlar; sunmuyorsa hata açıkça
-    /// bildirilir.
+    /// VOD ve dizilerde de tek tahmine güvenilmez; olasılık sırasına göre
+    /// birden çok adres denenir (ayrıntılı gerekçe aşağıda, VOD dalında).
+    /// Sağlayıcının bildirdiği uzantı desteklenmiyorsa veya beyan gerçekle
+    /// uyuşmuyorsa oynatma yine de başlayabilir; hiçbiri tutmazsa hata
+    /// kullanıcıya açıkça bildirilir.
     static func playbackCandidates(for item: any MediaItem, isLive: Bool) -> [URL] {
         let primary = item.streamURL
 
@@ -599,30 +626,37 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
             return candidates
         }
 
-        // VOD: yalnızca `AVPlayer`'ın çözemediği konteynerler için yedek üretilir.
+        // VOD/dizi: burada **tek aday** denemek yanlıştı.
         //
-        // Yedek olarak **HLS değil `mp4`** denenir. Xtream VOD içeriğini HLS
-        // paketlemesiyle sunmaz; `/movie/<user>/<pass>/<id>.m3u8` diye bir yol
-        // yoktur. Buna karşılık tek bir konteyner uzantısı bildirip dosyayı
-        // farklı uzantıyla sunan paneller yaygındır — `container_extension`
-        // "mkv" derken adresin `.mp4` olarak da çalıştığı sık görülür. Bu
-        // yüzden yedek, oynatılabilir tek biçim olan `.mp4`'tür.
+        // Daha önce yedek yalnızca sağlayıcının çözülemeyen bir konteyner
+        // bildirdiği durumda üretiliyordu (`mkv`, `avi`, …). Sağlayıcı
+        // oynatılabilir görünen bir uzantı bildirdiğinde liste tek elemana
+        // düşüyor ve o adres tutmazsa kullanıcı doğrudan hata uyarısı
+        // görüyordu. Canlı yayın bu tuzağa düşmez, çünkü orada uzantıdan
+        // bağımsız olarak **her zaman** iki aday üretilir (`[m3u8, ts]`) —
+        // "canlı çalışıyor, film çalışmıyor" farkının yapısal kaynağı buydu.
+        //
+        // Sağlayıcı beyanı ile gerçek dosya sık sık uyuşmaz: `container_extension`
+        // "mkv" derken adres `.mp4` olarak çalışır, ya da uzantı doğru olmasına
+        // karşın sunucu farklı bir biçim döndürür. Tek tahmine güvenmek yerine
+        // olasılık sırasına göre birkaç adres denenir.
+        //
+        // Sıra: asıl adres → `mp4` → `m3u8`.
+        //   * `mp4`: Xtream VOD'un standart biçimi.
+        //   * `m3u8`: VOD için standart yol **değildir** (o yüzden en sonda),
+        //     ama VOD'u HLS olarak da paketleyen paneller vardır. Bir deneme
+        //     daha yapmak, kullanıcıya kesin bir hata göstermekten iyidir.
         let ext = primary.pathExtension.lowercased()
-        guard Self.unplayableContainers.contains(ext) else { return [primary] }
+        var candidates: [URL] = [primary]
 
-        guard let mp4 = replacingExtension(of: primary, with: "mp4") else {
-            return [primary]
+        if ext != "mp4", let mp4 = replacingExtension(of: primary, with: "mp4") {
+            candidates.append(mp4)
         }
-        return [primary, mp4]
+        if ext != "m3u8", let hls = replacingExtension(of: primary, with: "m3u8") {
+            candidates.append(hls)
+        }
+        return candidates
     }
-
-    /// `AVPlayer`'ın doğrudan çözemediği video konteynerleri.
-    ///
-    /// Bu uzantılarda oynatma neredeyse her zaman başarısız olur; yedek adres
-    /// denemesi bu yüzden anlamlıdır. `.mp4`, `.mov` ve `.m2ts` listede
-    /// değildir — onlar zaten oynatılabilir ve gereksiz bir deneme, sağlayıcıya
-    /// boşuna istek göndermek olurdu.
-    private static let unplayableContainers: Set<String> = ["mkv", "avi", "webm", "flv", "wmv"]
 
     /// Adresin yol uzantısını değiştirir. Uzantı yoksa `nil` döner; böylece
     /// anlamsız bir adres üretilmez.

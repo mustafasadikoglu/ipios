@@ -56,44 +56,86 @@ final class PlaybackRoutingTests: XCTestCase {
         XCTAssertEqual(candidates.count, 2)
     }
 
-    /// VOD'da doğrudan oynatılabilen konteynerler tek adayla denenir; uzantı
-    /// değiştirilmez (`.mp4` doğrudan oynatılabilir ve yedek adres üretmek
-    /// sağlayıcıya boşuna istek göndermek olurdu).
+    /// VOD'da asıl adres **her zaman** ilk sırada denenir; sağlayıcının
+    /// bildirdiği biçim destekleniyorsa ona öncelik verilir.
     @MainActor
-    func testPlayableVODContainerUsesSingleCandidate() {
-        for ext in ["mp4", "mov", "m2ts"] {
+    func testVODAlwaysTriesDeclaredAddressFirst() {
+        for ext in ["mp4", "mov", "m2ts", "mkv", "avi", "webm"] {
             let url = "http://cdn.example.com/movie/user/pass/9.\(ext)"
             let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
-            XCTAssertEqual(candidates.map(\.absoluteString), [url], "\(ext) tek aday olmalı")
+            XCTAssertEqual(candidates.first?.absoluteString, url, "\(ext) ilk aday olmalı")
         }
     }
 
-    /// `AVPlayer`'ın çözemediği konteynerlerde (`.mkv`, `.avi`) `mp4` yedeği
-    /// denenmeli: aksi halde oynatma hiç başlamaz ve kullanıcı nedensiz hata
-    /// görür. Asıl adres yine ilk sırada kalır, çünkü sağlayıcı konteyneri
-    /// destekliyorsa gereksiz istek gönderilmemelidir.
+    /// `mp4` her durumda denenir: Xtream VOD'un standart biçimidir ve
+    /// sağlayıcı `container_extension` alanında farklı bir şey bildirse bile
+    /// dosya çoğu zaman `.mp4` olarak da çalışır.
+    @MainActor
+    func testVODAlwaysIncludesMP4Candidate() {
+        for ext in ["mkv", "avi", "webm", "m2ts", "mov", "flv", "wmv"] {
+            let url = "http://cdn.example.com/movie/user/pass/9.\(ext)"
+            let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
+            XCTAssertTrue(
+                candidates.contains { $0.pathExtension == "mp4" },
+                "\(ext) için mp4 yedeği bulunmalı"
+            )
+        }
+    }
+
+    /// mp4 zaten asıl adresteyse yedek olarak **tekrar eklenmemeli**.
+    @MainActor
+    func testVODDoesNotDuplicateMP4WhenItIsPrimary() {
+        let url = "http://cdn.example.com/movie/user/pass/9.mp4"
+        let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
+        XCTAssertEqual(
+            candidates.filter { $0.pathExtension == "mp4" }.count,
+            1,
+            "asıl adres mp4 ise ikinci kez eklenmemeli"
+        )
+    }
+
+    /// VOD'da HLS **en son** çare olarak denenir.
     ///
-    /// Yedeğin **HLS değil `mp4`** olduğu ayrıca doğrulanır: Xtream VOD içeriği
-    /// için `.m3u8` yolu yoktur, dolayısıyla HLS yedeği her zaman boşa giden bir
-    /// deneme olurdu. (Bu kural bir kez yanlış yazılmıştı.)
+    /// Xtream VOD'u standart olarak HLS ile sunmaz; bu yüzden `.m3u8` birincil
+    /// yedek değildir. Ancak VOD'u HLS olarak da paketleyen paneller vardır ve
+    /// bir deneme daha yapmak, kullanıcıya kesin bir hata göstermekten iyidir.
     @MainActor
-    func testUnplayableVODContainerFallsBackToMP4() {
-        for ext in ["mkv", "avi", "webm", "flv", "wmv"] {
+    func testVODTriesHLSAsLastResortOnly() {
+        let url = "http://cdn.example.com/movie/user/pass/9.mkv"
+        let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
+        XCTAssertEqual(
+            candidates.map(\.absoluteString),
+            [
+                url,
+                "http://cdn.example.com/movie/user/pass/9.mp4",
+                "http://cdn.example.com/movie/user/pass/9.m3u8"
+            ],
+            "sıra: asıl → mp4 → m3u8 olmalı"
+        )
+    }
+
+    /// VOD'da tek adayla yetinilmemeli: "canlı çalışıyor, film/dizi
+    /// çalışmıyor" farkının kök nedeni buydu.
+    ///
+    /// Canlı yayında uzantıdan bağımsız olarak her zaman iki aday üretilir ve
+    /// biri tutmazsa diğeri denenir. VOD'da yedek yalnızca çözülemeyen
+    /// konteynerlerde üretiliyordu; sağlayıcı oynatılabilir görünen bir uzantı
+    /// bildirdiğinde liste tek elemana düşüyor ve o adres tutmazsa kullanıcı
+    /// doğrudan hata uyarısı görüyordu.
+    @MainActor
+    func testVODNeverReliesOnASingleCandidate() {
+        for ext in ["mp4", "mov", "m2ts", "mkv", "avi", "webm", "flv"] {
             let url = "http://cdn.example.com/movie/user/pass/9.\(ext)"
             let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
-            XCTAssertEqual(
-                candidates.map(\.absoluteString),
-                [url, "http://cdn.example.com/movie/user/pass/9.mp4"],
-                "\(ext) için asıl adres önce, mp4 yedek sonra denenmeli"
-            )
-            XCTAssertFalse(
-                candidates.contains { $0.pathExtension == "m3u8" },
-                "VOD'da HLS yedeği üretilmemeli — Xtream o yolu sunmaz"
+            XCTAssertGreaterThan(
+                candidates.count, 1,
+                "\(ext) için yedek aday üretilmeli — tek adayla kalınmamalı"
             )
         }
     }
 
-    /// Sorgu dizesi yedek adrese de taşınmalı; düşerse sağlayıcı isteği reddeder.
+    /// Sorgu dizesi yedek adreslere de taşınmalı; düşerse sağlayıcı isteği
+    /// reddeder.
     @MainActor
     func testVODFallbackPreservesQueryString() {
         let candidates = AVPlayerEngine.playbackCandidates(
@@ -104,7 +146,8 @@ final class PlaybackRoutingTests: XCTestCase {
             candidates.map(\.absoluteString),
             [
                 "http://cdn.example.com/movie/user/pass/9.mkv?token=abc",
-                "http://cdn.example.com/movie/user/pass/9.mp4?token=abc"
+                "http://cdn.example.com/movie/user/pass/9.mp4?token=abc",
+                "http://cdn.example.com/movie/user/pass/9.m3u8?token=abc"
             ]
         )
     }
