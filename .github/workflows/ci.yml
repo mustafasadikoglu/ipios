@@ -55,7 +55,7 @@ jobs:
   #    ve iOS 18 çalışma zamanını içerir.
   # ------------------------------------------------------------------
   build:
-    name: Derleme (iOS Simulator)
+    name: Derleme ve IPA Üretimi
     runs-on: macos-15
     needs: static-checks
     env:
@@ -96,13 +96,35 @@ jobs:
 
           xcodebuild -list -project IPiOS.xcodeproj
 
-      - name: Derle
+      - name: Derle (Simülatör)
         run: |
           xcodebuild -project IPiOS.xcodeproj \
             -scheme IPiOS \
             -destination 'generic/platform=iOS Simulator' \
             $SIGNING \
             build
+
+      - name: IPA oluştur ve paketle (iOS Cihaz)
+        run: |
+          xcodebuild -project IPiOS.xcodeproj \
+            -scheme IPiOS \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            $SIGNING \
+            build
+
+          mkdir -p build/Payload
+          cp -r build/DerivedData/Build/Products/Release-iphoneos/IPiOS.app build/Payload/
+          cd build && zip -r -q IPiOS.ipa Payload
+
+      - name: IPA dosyasını yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPiOS-ipa
+          path: build/IPiOS.ipa
+          if-no-files-found: error
+          retention-days: 14
 
       # Hangi Xcode ile derlendiği, derleme başarısız olduğunda ilk bakılacak
       # bilgidir; bu yüzden adım `if: always()` ile her koşulda çalışır.
