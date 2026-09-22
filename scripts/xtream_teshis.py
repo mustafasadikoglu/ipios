@@ -76,7 +76,10 @@ def fetch(url, timeout=25):
 
 
 def head_status(url, timeout=12):
-    """Adres oynatilabilir mi? Sunucuya yalnizca ilk birkac bayti sorar."""
+    """Adres oynatilabilir mi? Sunucuya yalnizca ilk birkac bayti sorar.
+
+    Donen demet `probe` ile aynidir: (durum, icerik_turu, boyut, sinif, imza).
+    """
     return probe(url, ua=IPIOS_UA, timeout=timeout)
 
 
@@ -88,22 +91,61 @@ def probe(url, ua, timeout=12):
     ('IPiOS/1.0 (iOS)'); baska bir oynatici (VLC gibi) kendi adini gonderir
     ve gecer. Bu tam olarak 'baska uygulamada calisiyor, bunda calismiyor'
     tablosunu uretir. Bu yuzden her adres iki kez denenir.
+
+    Donen demet: (durum, icerik_turu, boyut, sinif, imza).
+
+    **Yalnizca durum koduna bakmak yetmez.** Xtream panelleri var olmayan bir
+    icin adresine HTTP 200 dondurup govdeye sifir baytlik (ya da bir HTML hata
+    sayfasi) koyar. Yalnizca `st == 200` kontrol edilirse o adres "calisiyor"
+    sanilir ve teshis tam tersine doner: gercekte oynatilamayan bir adres
+    "IPiOS bulamiyor" diye raporlanir. Bu yuzden govdenin ilk baytlari da
+    okunur ve gercek veri gelip gelmedigi imzadan anlasilir.
+
+    `sinif` degerleri: 'hls', 'mkv', 'mp4', 'ts', 'audio', 'html', 'bos',
+    'bilinmeyen', 'hata'.
     """
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(url, method="GET", headers={
         "User-Agent": ua,
-        "Range": "bytes=0-2047",  # tum dosyayi indirmemek icin
+        "Range": "bytes=0-4095",  # tum dosyayi indirmemek icin
     })
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
             ctype = r.headers.get("Content-Type", "?")
-            return r.status, ctype
+            body = r.read()
+            return r.status, ctype, len(body), *classify_body(body, ctype)
     except urllib.error.HTTPError as e:
-        return e.code, "-"
+        return e.code, "-", 0, "hata", ""
     except Exception as e:
-        return None, str(e)[:60]
+        return None, str(e)[:60], 0, "hata", ""
+
+
+# Konteyner imzalari. Sira onemli: TS imzasi MP4'ten once denenmezse
+# yanlis eslesme olabilir, ama TS'in senkron bayti (0x47) cok zayif bir
+# imzadir ve yanlis pozitif uretir; bu yuzden yalnizca acik imzalar kullanilir.
+def classify_body(body, ctype=""):
+    """Govdenin ilk baytlarindan gercek icerigi siniflandirir."""
+    if not body:
+        return "bos", ""
+    head = body[:16]
+    if head[:4] == b"\x1a\x45\xdf\xa3":
+        return "mkv", head[:4].hex()
+    if b"ftyp" in body[:64]:
+        return "mp4", head[:16].hex()
+    low = body[:1024].lower()
+    if b"<html" in low or b"<!doctype" in low or b"<?xml" in low:
+        return "html", ""
+    if b"#EXTM3U" in body[:2048]:
+        return "hls", ""
+    # MPEG-TS: 188 baytlik paketler 0x47 ile baslar; en az uc paket aranir.
+    if len(body) >= 376 and body[0] == 0x47 and body[188] == 0x47 and body[376] == 0x47:
+        return "ts", "47.."
+    if "mpegurl" in (ctype or "").lower():
+        return "hls", ""
+    return "bilinmeyen", head.hex()
+
 
 
 def main():
@@ -244,10 +286,14 @@ def main():
 
     # --- 5. GERCEK ADRES DENEMESI -----------------------------------------
     out("\n[5] GERCEK ADRES DENEMESI (asil kanit)")
-    out("  Ayni filmin adresi farkli uzantilarla denenir; hangisi 200 donerse")
-    out("  oynatilabilir olan odur.")
+    out("  Ayni filmin adresi farkli uzantilarla denenir. **Durum kodu tek")
+    out("  basina yetmez**: panel 200 dondurup govdeye 0 bayt ya da HTML hata")
+    out("  sayfasi koyabilir. Bu yuzden govdenin ilk baytlari da okunur ve")
+    out("  yalnizca GERCEK VIDEO VERISI donduren adres 'calisiyor' sayilir.")
     base = args.url.rstrip("/")
     cand_exts = ["m3u8", "mp4", "mkv", "avi", "ts"]
+    # AVPlayer'in cozebildigi tasiyicilar. MKV/AVI/WebM cozulemez.
+    AVPLAYER_OK = {"hls", "mp4", "ts"}
     for it in vod_items[: args.sample]:
         sid = it.get("stream_id") or it.get("id")
         if sid is None:
@@ -255,23 +301,48 @@ def main():
         name = (it.get("name") or "?")[:40]
         declared = it.get("container_extension")
         out(f"\n  --- {name}  (id={sid}, bildirilen={declared}) ---")
-        working = []
+        working = []       # gercek veri donen uzantilar
+        playable = []      # gercek veri donen VE AVPlayer'in cozdugu uzantilar
         for ext in cand_exts:
             u = f"{base}/movie/{args.user}/{args.password}/{sid}.{ext}"
-            st, ctype = probe(u, ua=IPIOS_UA)
-            mark = "OK " if st == 200 else "   "
-            out(f"    {mark}{ext:6} -> {st}  {ctype}")
-            if st == 200:
-                working.append(ext)
-        if working:
-            out(f"    => CALISAN UZANTILAR: {', '.join(working)}")
-            if declared and str(declared).lower() not in [w.lower() for w in working]:
+            st, ctype, size, sinif, sig = probe(u, ua=IPIOS_UA)
+            if st != 200:
+                out(f"       {ext:6} -> {st}  ({sinif})")
+                continue
+            if sinif in ("bos", "html"):
+                # En yaniltici durum: 200 ama video yok.
+                out(f"       {ext:6} -> 200  AMA GOVDE YOK ({sinif}) "
+                    f"<-- 'calisiyor' SAYILMAZ")
+                continue
+            working.append(ext)
+            if sinif in AVPLAYER_OK:
+                playable.append(ext)
+                out(f"    OK {ext:6} -> 200  [{sinif}] {size} bayt  AVPlayer cozer")
+            else:
+                out(f"    !! {ext:6} -> 200  [{sinif}] {size} bayt  "
+                    f"AVPlayer BU KONTEYNERI COZEMEZ")
+        if playable:
+            out(f"    => AVPlayer'in OYNATABILECEGI UZANTILAR: {', '.join(playable)}")
+            if declared and str(declared).lower() not in [w.lower() for w in playable]:
                 notes.append(f"film id={sid}: sunucu '{declared}' bildiriyor "
-                             f"ama calisan '{working[0]}' -> IPiOS yedekle bulur")
+                             f"ama AVPlayer icin calisan '{playable[0]}'")
+        elif working:
+            # Asil tuzak burada: bir uzanti veri donduruyor ama AVPlayer
+            # o konteyneri cozemez (ornegin yalnizca MKV veriyor).
+            out(f"    => YALNIZCA SU KONTEYNERLER VERI DONUYOR: "
+                f"{', '.join(working)} — AVPlayer bunlari COZEMEZ.")
+            out("       Eksik olan sey yedek adres degil, DEMUXER'dir;")
+            out("       uzantiyi degistirmek de kurtarmaz.")
+            problems.append(
+                f"film id={sid}: saglayici yalnizca "
+                f"{', '.join(working)} sunuyor ve AVPlayer bu konteyneri "
+                f"cozemez -> IPiOS'ta oynatmak icin FFmpeg tabanli bir "
+                f"oynatici cekirdegi gerekir (VLCKit)")
         else:
-            out("    => Hicbiri 200 donmedi. Bu icerik bu hesapla oynatilamiyor.")
-            problems.append(f"film id={sid} icin hicbir uzanti calismadi "
-                            f"-> saglayici bu icerigi sunmuyor")
+            out("    => Hicbir uzanti gercek video dondurmedi. "
+                "Bu icerik bu hesapla oynatilamiyor.")
+            problems.append(f"film id={sid} icin hicbir uzanti gercek veri "
+                            f"dondurmedi -> saglayici bu icerigi sunmuyor")
 
     # --- 5b. User-Agent karsilastirmasi ------------------------------------
     out("\n[5b] USER-AGENT KARSILASTIRMASI (baska uygulamada calisiyor, bunda calismiyorsa)")
@@ -286,8 +357,8 @@ def main():
             continue
         ext = (it.get("container_extension") or "mp4").strip() or "mp4"
         u = f"{base}/movie/{args.user}/{args.password}/{sid}.{ext}"
-        st_ipios, _ = probe(u, ua=IPIOS_UA)
-        st_vlc, _ = probe(u, ua=VLC_UA)
+        st_ipios = probe(u, ua=IPIOS_UA)[0]
+        st_vlc = probe(u, ua=VLC_UA)[0]
         verdict = ""
         if st_ipios != 200 and st_vlc == 200:
             verdict = "  <-- IPiOS'un adi ENGELLENIYOR"
@@ -396,8 +467,9 @@ def main():
             continue
         ext = (it.get("container_extension") or "mp4").strip() or "mp4"
         u = f"{base}/movie/{args.user}/{args.password}/{sid}.{ext}"
-        st, _ = probe(u, ua=IPIOS_UA)
-        if st == 200:
+        st, _, _, sinif, _ = probe(u, ua=IPIOS_UA)
+        # 200 dondurup govdesi bos olan adres uzerinde kodek aranmaz.
+        if st == 200 and sinif not in ("bos", "html"):
             sniff(u, f"film id={sid} (.{ext})")
             sniffed = True
             break
