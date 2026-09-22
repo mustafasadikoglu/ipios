@@ -103,6 +103,7 @@ ipios/
 │   ├── XMLTVDateTests.swift
 │   ├── CoreUtilitiesTests.swift
 │   ├── PlaybackRoutingTests.swift
+│   ├── PlaybackDiagnosticsTests.swift
 │   └── LocalizationTests.swift
 └── IPiOS/
     ├── App/                          # uygulama girişi ve kök akış
@@ -161,6 +162,7 @@ ipios/
     │       └── ContentLibrary.swift  # aktif kaynağın içerik aynası
     ├── Player/                       # AVPlayer sarmalayıcıları
     │   ├── AVPlayerEngine.swift
+    │   ├── PlaybackDiagnostics.swift # hata sınıflandırma + akış kodek ölçümü
     │   ├── AudioSessionManager.swift
     │   ├── PictureInPictureController.swift
     │   └── VideoSurfaceView.swift
@@ -432,6 +434,9 @@ Kritik noktalar:
 | XMLTV dosyalarının büyüklüğü | Orta | Streaming `XMLParser`, kanal bazlı parçalı önbellek. |
 | Kullanıcı şifrelerinin sızması | Yüksek | Keychain, cihaz dışına çıkmaz, loglarda maskelenir. |
 | Sağlayıcı API tutarsızlıkları | Orta | Xtream DTO'ları tüm alanları `optional` kabul eder, eksik alanlarda güvenli varsayılan. |
+| Kimlik bilgilerinin akış adresinde yol içinde taşınması | Yüksek | Şifre URL yolunun bir parçasıdır ve yüzde kodlanmalıdır. `URLComponents.path` ayarlayıcısı alt sınırlayıcıları (`@`, `+`, `:`, `/`) kodlamaz; bu yüzden kodlama `percentEncodedPathSegment` ile açıkça yapılır. Ayrıca `percentEncodedPath` ayarlayıcısı geçersiz kodlamada `fatalError` verir; bu yüzden kodlama asla ham parçaya geri düşmez. |
+| Sunucu adresinde yol öneki | Orta | Xtream uç noktaları adresin köküne sabitlenmez; kullanıcının verdiği yol öneki (`http://host/iptv`) korunur. Öneki atmak, sağlayıcısını alt yol altında sunan panellerde isteği yanlış adrese gönderir. |
+| Sessiz biçim/konteyner uyumsuzluğu ("başka uygulamada açılıyor, bunda açılmıyor") | Yüksek | Neden tahmin edilmez, **ölçülür**: akışın taşıdığı kodekler `AVAsset` ile okunur (`PlaybackDiagnostics`). Desteklenmeyen bir ses kodeği görüntü kodeği destekli olsa bile öğenin tamamını düşürür; kullanıcıya kodeğin adı söylenir ve sağlayıcıya iletilebilecek dilden bağımsız bir teşhis satırı eklenir. |
 
 ---
 

@@ -188,6 +188,18 @@
 "player.action.backward"        = "10 saniye geri";
 "player.error.tsUnsupported"    = "Bu yayın MPEG-TS biçiminde ve doğrudan oynatılamıyor. Kaynak sağlayıcınızdan HLS (.m3u8) çıkışı isteyin.";
 "player.hint.tap"               = "Kontroller için dokunun";
+/* Oynatma hatasının **ölçülmüş** nedenleri. Genel "Oynatma başlatılamadı."
+   metni kullanıcıya ne olduğunu söylemiyordu; bu metinler akışın taşıdığı
+   gerçek biçimi/kodeği adıyla bildirir. */
+"player.error.codec.audio"      = "Bu film %@ ses biçimini kullanıyor ve bu biçim cihazda çözülemiyor. Kaynak sağlayıcınızdan sesi AAC olan bir sürüm isteyin.";
+"player.error.codec.video"      = "Bu film %@ görüntü biçimini kullanıyor ve bu biçim cihazda çözülemiyor.";
+"player.error.container"        = "Bu yayın (%@) oynatıcının çözemediği bir dosya biçiminde. Kaynak sağlayıcınızdan MP4 veya HLS çıkışı isteyin.";
+"player.error.rejected"         = "Sunucu yayını vermeyi reddetti (kod: %d). Aboneliğinizin ve eşzamanlı bağlantı sınırının durumunu kontrol edin.";
+"player.error.rejectedNoCode"   = "Sunucu yayını vermeyi reddetti. Aboneliğinizin ve eşzamanlı bağlantı sınırının durumunu kontrol edin.";
+/* Açıklamanın altına eklenen, dile bağlı olmayan teşhis satırı
+   (ör. "AVFoundationErrorDomain -11800 ← ac-3"). Kullanıcı bunu sağlayıcıya
+   iletebilir; bu yüzden etiketi de yerelleştirilir. */
+"player.error.technical"        = "%@\n\nTeknik ayrıntı: %@";
 
 /* --- Ayarlar --- */
 "settings.section.sources"      = "Kaynaklar";

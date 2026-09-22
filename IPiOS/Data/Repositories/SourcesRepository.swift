@@ -172,7 +172,12 @@ final class SourcesRepository: ObservableObject {
 
     private func xtreamXMLTVURL(source: PlaylistSource, username: String, password: String) -> URL? {
         var components = URLComponents(url: source.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/xmltv.php"
+        // Kullanıcının adreste verdiği yol öneki korunur: sağlayıcısını bir alt
+        // yol altında sunan panellerde (`http://host/iptv`) öneki atmak isteği
+        // yanlış adrese gönderir ve EPG sessizce boş kalırdı.
+        var prefix = source.baseURL.path
+        while prefix.hasSuffix("/") { prefix.removeLast() }
+        components?.path = prefix + "/xmltv.php"
         components?.queryItems = [
             URLQueryItem(name: "username", value: username),
             URLQueryItem(name: "password", value: password)

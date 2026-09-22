@@ -188,6 +188,18 @@
 "player.action.backward"        = "Skip 10 seconds back";
 "player.error.tsUnsupported"    = "This stream is MPEG-TS and cannot be played directly. Ask your provider for an HLS (.m3u8) output.";
 "player.hint.tap"               = "Tap to show controls";
+/* Measured reasons for a playback failure. The generic "Playback could not be
+   started." text told the user nothing; these name the actual format/codec the
+   stream carries. */
+"player.error.codec.audio"      = "This movie uses %@ audio, which cannot be decoded on this device. Ask your provider for a version with AAC audio.";
+"player.error.codec.video"      = "This movie uses %@ video, which cannot be decoded on this device.";
+"player.error.container"        = "This stream (%@) is in a file format the player cannot read. Ask your provider for an MP4 or HLS output.";
+"player.error.rejected"         = "The server refused to serve the stream (code: %d). Check your subscription and its simultaneous connection limit.";
+"player.error.rejectedNoCode"   = "The server refused to serve the stream. Check your subscription and its simultaneous connection limit.";
+/* Diagnostic line appended under the description, language-independent
+   (e.g. "AVFoundationErrorDomain -11800 ← ac-3"). The user can pass it on to
+   their provider, so the label itself is localized. */
+"player.error.technical"        = "%@\n\nTechnical detail: %@";
 
 /* --- Settings --- */
 "settings.section.sources"      = "Sources";

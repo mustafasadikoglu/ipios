@@ -6,9 +6,18 @@ import UIKit
 ///
 /// Kapsam:
 /// - HLS (`.m3u8`) canlı ve VOD akışları
-/// - MP4 / MKV gibi dosya tabanlı VOD akışları (destek codec'e bağlıdır)
+/// - Dosya tabanlı VOD akışları — **yalnızca `AVPlayer`'ın çözebildiği
+///   konteyner ve kodeklerde**: MKV/AVI/WebM konteynerleri, AC3/E-AC3/DTS/Opus
+///   sesleri ve AV1/VP9 görüntüleri desteklenmez. Desteklenmeyen bir **ses**
+///   kodeği, görüntü kodeği destekli olsa bile öğenin tamamını düşürür.
 /// - Arka planda ses devamı ve kilit ekranı kontrolleri
 /// - VOD için kaldığı yerden devam
+///
+/// Aday listesi tükendiğinde kullanıcıya gösterilen metin tahminle değil
+/// **ölçümle** üretilir: akışın taşıdığı kodekler okunur ve hata zinciri
+/// çözümlenir (bkz. `PlaybackDiagnostics`). Neden gerekli: "Oynatma
+/// başlatılamadı." cümlesi üç ayrı kusuru (desteklenmeyen kodek, tanınmayan
+/// konteyner, sunucu reddi) aynı metne indiriyordu ve sorun teşhis edilemiyordu.
 ///
 /// Canlı yayında yedek adres: `AVPlayer` ham MPEG-TS konteynerini çözemez,
 /// yalnızca HLS paketlemesi içindeki TS parçalarını oynatabilir. Sağlayıcılar
@@ -41,23 +50,42 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     }
     private var didFailOnUnsupportedFormat = false
 
-    /// Son başarısız `AVPlayerItem` denemesinin kullanıcıya gösterilebilir
-    /// metni.
+    /// Son başarısız `AVPlayerItem` denemesinin ham hatası.
     ///
     /// Denemeler arasında **yayınlanmaz**: birden çok adres sırayla
     /// denendiğinde ara hataların kullanıcıya gösterilmesi, oynatma nihayetinde
     /// başlasa bile ekranda bir hata uyarısı bırakırdı. Yalnızca tüm adaylar
-    /// tükendiğinde `state`'e taşınır.
-    private var lastAttemptFailureMessage: String?
+    /// tükendiğinde sınıflandırılıp `state`'e taşınır.
+    ///
+    /// Neden ham hata saklanır: kullanıcıya gösterilecek metni burada üretmek,
+    /// gerçek nedeni (kodek mi, konteyner mi, sunucu reddi mi) bilmeden tahmin
+    /// yürütmek olurdu. Sınıflandırma tek yerde ve tüm denemeler bittikten
+    /// sonra yapılır (bkz. `PlaybackDiagnostics.classify`).
+    private var lastAttemptError: Error?
+
+    /// Son başarısız denemenin adresi.
+    ///
+    /// Ölçüm bu adres üzerinden yapılır: hata hangi adresten geldiyse kodek de
+    /// oradan okunmalıdır. Yedek adres denendiğinde değer güncellenir; böylece
+    /// "asıl adres başarısız, mp4 yedeği başarısız" durumunda ölçüm **son**
+    /// adresi yansıtır ve yanlış teşhis yazılmaz.
+    private var lastFailedURL: URL?
+
+    /// Son denemenin akış ölçümü yapılmış adresi.
+    ///
+    /// Ölçüm pahalıdır (ağ); aynı akış için bir kez yapılır. Adres
+    /// değiştiğinde önceki ölçüm geçersizdir ve yeniden ölçülür.
+    private var lastInspectedURL: URL?
+    private var lastInspection: StreamInspection?
+
+    /// Son deneme süre aşımına mı uğradı?
+    ///
+    /// Ayrı bayrak: süre aşımı hatasız gelir (`AVPlayerItem` hata üretmez),
+    /// dolayısıyla hatadan ayırt edilemez.
+    private var lastAttemptTimedOut = false
 
     /// Oynatıcı katmanı; `VideoPlayerView` bu nesneyi kullanır.
     let player = AVPlayer()
-
-    /// `AVURLAsset` seçenekleri anahtarı.
-    ///
-    /// `AVURLAssetHTTPHeaderFieldsKey` Objective-C sabiti Swift'e
-    /// köprülenmediği için değeri burada tutulur; sihirli dize tek yerde kalır.
-    private static let headerFieldsKey = "AVURLAssetHTTPHeaderFieldsKey"
 
     private var currentItem: (any MediaItem)?
     private var itemStatusObservation: NSKeyValueObservation?
@@ -192,7 +220,10 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
             guard generation == attemptGeneration else { return }
 
             guard startupOutcome == .ready else {
-                // Bu adres açılmadı; sıradaki varsa denenir.
+                // Bu adres açılmadı. Hatanın hangi adresten geldiği saklanır:
+                // teşhis ölçümü bu adres üzerinden yapılır.
+                lastFailedURL = url
+                // Sıradaki varsa denenir.
                 candidateIndex += 1
                 continue
             }
@@ -223,12 +254,53 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         let primaryIsRawTransportStream =
             currentItem?.streamURL.pathExtension.lowercased() == "ts"
 
-        let message: String
-        if primaryIsRawTransportStream {
-            message = L.t("player.error.tsUnsupported")
-        } else {
-            message = lastAttemptFailureMessage ?? L.t("player.error.startFailed")
+        // Neden ölçüm: "Oynatma başlatılamadı." metni kullanıcıya hiçbir şey
+        // söylemiyordu ve sorun üç turdur teşhis edilemiyordu. Gerçek neden
+        // çoğu zaman taşıyıcıda ya da kodektedir (ör. H.264 görüntü + AC3 ses
+        // → AVPlayer ses kodekini çözemez ve öğenin **tamamı** düşer). Bu
+        // yüzden hata metni tahminle değil, akışın kendisi okunarak üretilir.
+        //
+        // Ölçüm yalnızca gerektiğinde ve **bir kez** yapılır; her başarısız
+        // denemede ağa çıkılmaz.
+        // Ölçümden önce oynatıcı bırakılır.
+        //
+        // İki nedeni var: (1) başarısız öğe hâlâ sunucu bağlantısını tutuyor
+        // olabilir ve Xtream panelleri eşzamanlı bağlantıyı sınırlar — ikinci
+        // bir bağlantı açmak ölçümü yanıltırdı; (2) `AVFoundation` aynı adres
+        // için başarısız sonucu önbelleğe alabilir ve ölçüm gerçek dosyaya
+        // bakmadan "okunamadı" derdi.
+        player.replaceCurrentItem(with: nil)
+        removeObservers()
+
+        var inspection = lastInspection
+        if let failedURL = lastFailedURL, lastInspectedURL != failedURL {
+            inspection = await PlaybackDiagnostics.inspect(failedURL)
+            lastInspection = inspection
+            lastInspectedURL = failedURL
         }
+
+        // Ölçüm `await` içerir; bu sırada kullanıcı başka bir yayına geçmiş ya
+        // da oynatıcı kapatılmış olabilir. Durum yazılmadan önce nesil yeniden
+        // doğrulanır — aksi hâlde kapatılmış bir oynatıcıda sahte hata açılırdı.
+        guard generation == attemptGeneration else { return }
+
+        let failure = PlaybackDiagnostics.classify(
+            error: lastAttemptError,
+            timedOut: lastAttemptTimedOut,
+            inspection: isLive ? nil : inspection,
+            extensionHint: currentItem?.streamURL.pathExtension.lowercased() ?? ""
+        )
+
+        // Teşhis günlüğe yazılır: kullanıcı yalnızca ekrandaki metni görür ama
+        // sorun tekrar bildirildiğinde hangi adresin/adedin denendiği burada
+        // kayıtlıdır. Adresin tamamı **yazılmaz** (sağlayıcı hesabı taşır).
+        Log.player.error(
+            "Oynatma başarısız: \(failure.technicalCode, privacy: .public) — denenen adres sayısı: \(self.candidateURLs.count)"
+        )
+
+        let message = primaryIsRawTransportStream
+            ? L.t("player.error.tsUnsupported")
+            : failure.fullMessage
 
         // Bayrak **durumdan önce** yazılır: durum aboneliği (`Combine`) atama
         // anında eşzamanlı çalışır ve arayüz bayrağı o sırada okur.
@@ -240,16 +312,25 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     private func startItem(with url: URL) {
         removeObservers()
         startupOutcome = nil
-        // Her adres kendi hatasını taşır; önceki denemenin mesajı sızmamalı.
-        lastAttemptFailureMessage = nil
+        // Her adres kendi hatasını taşır; önceki denemenin sonucu sızmamalı.
+        lastAttemptError = nil
+        lastAttemptTimedOut = false
+        // Önceki adresin ölçümü bu adres için geçerli değil.
+        lastInspectedURL = nil
+        lastInspection = nil
 
         // Sağlayıcıya özel başlık gereksinimleri için ortak bir UA gönderilir.
         //
         // `AVURLAssetHTTPHeaderFieldsKey` Swift'e köprülenmemiş bir
         // Objective-C sabitidir; anahtar bu yüzden dize olarak verilir.
+        // Değer `PlaybackDiagnostics` ile **aynı** kaynaktan gelir: teşhis
+        // ölçümü farklı bir UA gönderirse gerçek oynatma koşulunu yansıtmaz ve
+        // "sunucu UA'yı engelliyor" teşhisi yanlış çıkardı.
         let asset = AVURLAsset(
             url: url,
-            options: [Self.headerFieldsKey: ["User-Agent": "IPiOS/1.0 (iOS)"]]
+            options: [
+                PlaybackDiagnostics.headerFieldsKey: ["User-Agent": PlaybackDiagnostics.userAgent],
+            ]
         )
 
         let playerItem = AVPlayerItem(asset: asset)
@@ -284,10 +365,10 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     }
 
     private func handleStartupTimeout() {
-        // Gözlemci bu adres için zaten bir hata metni yazdıysa o metin korunur;
-        // daha açıklayıcı olan sağlayıcı/motor hatasıdır.
-        if lastAttemptFailureMessage == nil {
-            lastAttemptFailureMessage = L.t("player.error.timeout")
+        // Gözlemci bu adres için zaten bir hata yazdıysa o korunur; motor
+        // hatası süre aşımından daha açıklayıcıdır.
+        if lastAttemptError == nil {
+            lastAttemptTimedOut = true
         }
         signalReady(.failed)
     }
@@ -381,6 +462,11 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         isBuffering = false
         didResumeFromSavedPosition = false
         didFailOnUnsupportedFormat = false
+        lastAttemptError = nil
+        lastAttemptTimedOut = false
+        lastFailedURL = nil
+        lastInspectedURL = nil
+        lastInspection = nil
         currentItem = nil
 
         // Yakalanan konum, durum temizlendikten sonra yazılır.
@@ -454,14 +540,11 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
                 guard self.player.currentItem === item else { return }
                 switch item.status {
                 case .failed:
-                    // AVFoundation'ın verdiği metin İngilizce olabilir; bu yüzden
-                    // onu doğrudan göstermek yerine yerelleştirilmiş genel bir
-                    // metne eşlik eden teknik ayrıntı olarak veriyoruz.
-                    let detail = item.error?.localizedDescription
-                        ?? L.t("player.error.unknown")
-                    self.lastAttemptFailureMessage =
-                        AppError.playbackFailed(reason: detail).errorDescription
-                            ?? L.t("player.error.startFailed")
+                    // Ham hata saklanır; kullanıcıya gösterilecek metin tüm
+                    // adaylar tükendiğinde `PlaybackDiagnostics` ile üretilir.
+                    // `localizedDescription` **kullanılmaz**: İngilizce gelir ve
+                    // gerçek nedeni (kodek/konteyner) söylemez.
+                    self.lastAttemptError = item.error
                     // Hata burada **yayınlanmaz**: yedek bir adres varsa sıradaki
                     // deneme başarılı olabilir. Nihai durum `attemptPlayback`
                     // tarafından yazılır.
@@ -537,13 +620,25 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
             let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                // `AVFoundation` metni İngilizce olabilir; teknik ayrıntı
-                // yerelleştirilmiş genel mesaja eşlik eder.
-                let detail = error?.localizedDescription ?? L.t("player.error.unknown")
-                self.state = .failed(
-                    message: AppError.playbackFailed(reason: detail).errorDescription
-                        ?? L.t("player.error.interrupted")
+                // Yayın **başladıktan sonra** kesildi: aday denemesi değil,
+                // oturumun düşmesidir. Yine de neden ölçülür — sunucu reddi,
+                // zaman aşımı ve ağ kopması burada da ayırt edilebilir.
+                let failure = PlaybackDiagnostics.classify(
+                    error: error,
+                    timedOut: false,
+                    inspection: nil,
+                    extensionHint: self.currentItem?.streamURL.pathExtension.lowercased() ?? ""
                 )
+                Log.player.error(
+                    "Yayın kesildi: \(failure.technicalCode, privacy: .public)"
+                )
+                // Ayırt edilebilen bir neden varsa (sunucu reddi, ağ kopması)
+                // o gösterilir. Neden bulunamazsa "yayın açılamadı" demek
+                // yanlış olurdu: yayın açılmıştı, **kesildi**.
+                let message = failure.kind == .unknown
+                    ? L.f("player.error.technical", L.t("player.error.interrupted"), failure.technicalCode)
+                    : failure.fullMessage
+                self.state = .failed(message: message)
             }
         }
 
@@ -610,6 +705,11 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     /// Sağlayıcının bildirdiği uzantı desteklenmiyorsa veya beyan gerçekle
     /// uyuşmuyorsa oynatma yine de başlayabilir; hiçbiri tutmazsa hata
     /// kullanıcıya açıkça bildirilir.
+    ///
+    /// Uzantı değiştirmek **kodeği değiştirmez**: sağlayıcı `.mp4` uzantılı bir
+    /// adreste AC3 ses sunuyorsa hiçbir aday açılmaz. Bu durumda denemenin
+    /// başarısızlığı bir adres sorunu değil, cihazın çözemediği bir biçimdir —
+    /// ayrım `PlaybackDiagnostics` ile yapılır.
     static func playbackCandidates(for item: any MediaItem, isLive: Bool) -> [URL] {
         let primary = item.streamURL
 
@@ -660,14 +760,31 @@ final class AVPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
 
     /// Adresin yol uzantısını değiştirir. Uzantı yoksa `nil` döner; böylece
     /// anlamsız bir adres üretilmez.
+    ///
+    /// - Important: İşlem **kodlanmış** yol üzerinde yapılır, çözülmüş yol
+    ///   üzerinde değil. Ölçülmüş kusur: eski kod `url.path` (çözülmüş) alıp
+    ///   `components.path` ayarlayıcısına veriyordu; o ayarlayıcı `/`
+    ///   karakterini **kodlamaz**. Şifresinde eğik çizgi olan bir kullanıcıda
+    ///   asıl adreste `%2F` olarak kodlanmış karakter çözülüp ham `/` olarak
+    ///   geri yazılıyor, yol bir fazla parçaya bölünüyor ve kimlik bilgisi
+    ///   yanlış okunuyordu. Belirti sinsiydi: **yalnızca yedek adres** bozulur,
+    ///   asıl adres doğru kalır — yani kimi film açılır, kimi açılmaz.
+    ///
+    ///   Not: ilk bakışta akla gelen "iki kez kodlama" (`%2540`) kusuru
+    ///   burada **yoktu**; eski kod çözüp yeniden kodladığı için tur
+    ///   gidiş-dönüşü kararlıydı. Bu, ölçülerek elenen bir varsayımdır.
     private static func replacingExtension(of url: URL, with newExtension: String) -> URL? {
-        guard !url.pathExtension.isEmpty else { return nil }
+        let encodedPath = url.percentEncodedPath
+        guard let lastSlash = encodedPath.lastIndex(of: "/") else { return nil }
+
+        let lastSegment = encodedPath[encodedPath.index(after: lastSlash)...]
+        // Uzantı son parçanın içinde aranır: üst dizinlerdeki noktalar
+        // (`/a.b/c/9`) uzantı sanılmamalıdır.
+        guard let dot = lastSegment.lastIndex(of: "."),
+              dot != lastSegment.startIndex else { return nil }
+
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        let path = url.path
-        let base = path.hasSuffix(".\(url.pathExtension)")
-            ? String(path.dropLast(url.pathExtension.count + 1))
-            : path
-        components?.path = "\(base).\(newExtension)"
+        components?.percentEncodedPath = "\(encodedPath[..<dot]).\(newExtension)"
         return components?.url
     }
 

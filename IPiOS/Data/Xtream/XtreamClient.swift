@@ -270,7 +270,7 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
     /// XMLTV EPG adresi (Xtream standart yolu).
     var xmltvURL: URL? {
         var components = URLComponents(url: source.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/xmltv.php"
+        components?.path = basePathPrefix + "/xmltv.php"
         components?.queryItems = credentialsQueryItems
         return components?.url
     }
@@ -278,7 +278,7 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
     /// Ham M3U playlist adresi (Xtream `get.php` yolu).
     func m3uURL(includeVOD: Bool = true) -> URL? {
         var components = URLComponents(url: source.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/get.php"
+        components?.path = basePathPrefix + "/get.php"
         var items = credentialsQueryItems
         items.append(URLQueryItem(name: "type", value: "m3u_plus"))
         items.append(URLQueryItem(name: "output", value: includeVOD ? "ts" : "hls"))
@@ -287,6 +287,20 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
     }
 
     // MARK: - Private
+
+    /// Kullanıcının sunucu adresinde verdiği yol öneki (ör. `http://host/iptv`).
+    ///
+    /// Neden gerekli: Xtream uç noktaları (`/player_api.php`, `/get.php`,
+    /// `/xmltv.php`) adresin köküne sabitleniyordu. Sağlayıcısını bir alt yol
+    /// altında sunan kullanıcıda (ters vekil arkasında çalışan panellerde
+    /// yaygındır) bu önek sessizce atılıyor, istekler yanlış yere gidiyor ve
+    /// kullanıcı "şifre yanlış" ya da boş liste görüyordu. Adresin kökünde
+    /// önek yoktur ve davranış değişmez.
+    private var basePathPrefix: String {
+        var prefix = source.baseURL.path
+        while prefix.hasSuffix("/") { prefix.removeLast() }
+        return prefix
+    }
 
     private var credentialsQueryItems: [URLQueryItem] {
         var items: [URLQueryItem] = []
@@ -345,7 +359,7 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
 
     private func buildAPIURL(action: String?, extra: [String: String]) -> URL? {
         var components = URLComponents(url: source.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/player_api.php"
+        components?.path = basePathPrefix + "/player_api.php"
         var items = credentialsQueryItems
         if let action {
             items.append(URLQueryItem(name: "action", value: action))
@@ -362,14 +376,68 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
     /// - live:   `/live/<user>/<pass>/<id>.<ext>`
     /// - movie:  `/movie/<user>/<pass>/<id>.<ext>`
     /// - series: `/series/<user>/<pass>/<id>.<ext>`
+    ///
+    /// - Important: Kimlik bilgileri **yolun içinde** taşınır ve yüzde
+    ///   kodlanmalıdır. `URLComponents.path` ayarlayıcısı yalnızca bir kısmını
+    ///   kodlar: `?`, `#`, `%`, boşluk ve ASCII dışı karakterleri kodlar ama
+    ///   alt sınırlayıcıları (`$`, `&`, `+`, `,`, `;`, `=`, `:`, `@`)
+    ///   **kodlamaz**. Şifresinde `@` ya da `+` olan bir kullanıcıda yol
+    ///   sessizce bozulur ve ortaya çıkan tablo tam olarak şuydu: liste gelir
+    ///   (kimlik `player_api.php` sorgu parametresi olarak sorunsuz gider),
+    ///   ama akış adresi 404 döner ve video hiç açılmaz. Bu yüzden kodlama
+    ///   burada açıkça yapılır.
     private func makeStreamURL(streamID: String, type: String, extensionHint: String?) -> URL? {
         guard let username = source.username else { return nil }
         let ext = Self.normalizeExtension(extensionHint)
 
         var components = URLComponents(url: source.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/\(type)/\(username)/\(password)/\(streamID).\(ext)"
         components?.queryItems = nil
+
+        let segments = [type, username, password, "\(streamID).\(ext)"]
+            .map(Self.percentEncodedPathSegment)
+        components?.percentEncodedPath = Self.percentEncodedPathPrefix(basePathPrefix)
+            + "/" + segments.joined(separator: "/")
         return components?.url
+    }
+
+    /// Tek bir yol parçasını yüzde kodlar.
+    ///
+    /// `urlPathAllowed` kullanılmaz: o küme `/` ve `;` karakterlerini serbest
+    /// bırakır ve `/` içeren bir şifre yolu ikiye bölerdi. Bunun yerine
+    /// yalnızca kesinlikle güvenli olan ("unreserved") karakterler korunur.
+    ///
+    /// - Note: Dönüşüm başarısız olursa **boş** dize döner, ham parça değil.
+    ///   `URLComponents.percentEncodedPath` ayarlayıcısı geçersiz kodlama
+    ///   verildiğinde `fatalError` ile çöker (Apple belgesi); ham bir parçayı
+    ///   geri vermek uygulamayı çökertme riski taşır. Bu yolda çökme kabul
+    ///   edilemez — eksik parça en fazla isteğin başarısız olmasına yol açar.
+    static func percentEncodedPathSegment(_ segment: String) -> String {
+        segment.addingPercentEncoding(
+            withAllowedCharacters: allowedPathSegmentCharacters
+        ) ?? ""
+    }
+
+    /// Bir yol parçasında kodlanmadan bırakılabilecek karakterler.
+    ///
+    /// Yalnızca "unreserved" küme: harfler, rakamlar ve `- . _ ~`. `/`, `@`,
+    /// `+` gibi karakterler kodlanır. Kodlamayı tek yerde toplamak önemlidir;
+    /// adres üreten her çağrı aynı kümeyi kullanmazsa bir yol kodlar, bir yol
+    /// kodlamaz ve tutarsızlık sessiz bir 404 olarak ortaya çıkar.
+    static let allowedPathSegmentCharacters = CharacterSet(charactersIn:
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+
+    /// Yol önekini `percentEncodedPath` için hazırlar.
+    ///
+    /// Her parça tek tek kodlanır, `/` ayırıcı olarak kalır: önek kullanıcının
+    /// yazdığı adresten gelir ve içinde boşluk ya da ASCII dışı karakter
+    /// bulunabilir. `percentEncodedPath` ayarlayıcısı zaten kodlanmış bir metin
+    /// bekler; kodlamadan verilseydi `%` iki kez kodlanırdı.
+    static func percentEncodedPathPrefix(_ prefix: String) -> String {
+        prefix
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map { percentEncodedPathSegment(String($0)) }
+            .map { "/" + $0 }
+            .joined()
     }
 
     /// Canlı yayın adreslerinde kullanılan uzantı.
