@@ -529,12 +529,18 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
 
     /// Ses seviyesi 0...1.
     ///
-    /// Dönüşüm gerekir: arayüz 0...1 aralığında çalışır, `VLCAudio.volume` ise
-    /// **tamsayı** bir ölçek kullanır (0–100 ve üzeri). Doğrudan atama sesi
-    /// ya tamamen kapatır ya da sonuna kadar açar.
+    /// İki dönüşüm gerekir ve ikisi de derleyici tarafından doğrulandı:
+    ///
+    /// 1. `player.audio` **opsiyoneldir** (`readonly, weak`); oynatıcı henüz
+    ///    ses çıkışı kurmadıysa `nil` olur. Bu yüzden `?` ile yazılır —
+    ///    kuvvetli çözme, ses ayarı ekran açılışında uygulandığında çökerdi.
+    /// 2. `volume` bir **tamsayı** ölçektir (0–100 ve üzeri) ve Swift'te
+    ///    `Int32` olarak köprülenir. `Int` yazmak derleme hatası verir; ham
+    ///    0...1 değerini vermek ise sesi ya tamamen kapatır ya sonuna kadar
+    ///    açar (eski kusur: "ses çıkmuyor" sanılıp boşuna kodek aranırdı).
     func setVolume(_ value: Float) {
         let clamped = min(max(value, 0), 1)
-        player.audio.volume = Int(clamped * 100)
+        player.audio?.volume = Int32(clamped * 100)
     }
 
     // MARK: - Adres seçimi

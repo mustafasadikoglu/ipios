@@ -77,6 +77,28 @@ jobs:
       - name: Xcode projesini üret
         run: xcodegen generate
 
+      # VLCKit ikilisi ~920 MB. Önbellek olmadan her koşu bunu yeniden indirir:
+      # derleme adımının çoğu beklemeyle geçer ve macOS dakikaları ücretlidir.
+      # Anahtar `project.yml` içeriğine bağlıdır; paket sürümü değişirse
+      # (`exactVersion`) önbellek kendiliğinden geçersiz olur ve temiz indirme
+      # yapılır. Geri yükleme anahtarı sürüme bağlı, kaydetme anahtarı ise
+      # `restore-keys` ile her koşuda tazelenir: böylece paket deposu bir kez
+      # inip sonraki koşularda yerinde kalır.
+      - name: VLCKit paketini önbelleğe al
+        uses: actions/cache@v4
+        with:
+          path: package-cache
+          key: vlckit-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: |
+            vlckit-${{ runner.os }}-
+
+      - name: Paket bağımlılıklarını çöz
+        run: |
+          xcodebuild -project IPiOS.xcodeproj \
+            -scheme IPiOS \
+            -clonedSourcePackagesDirPath package-cache \
+            -resolvePackageDependencies
+
       - name: Üretilen projeyi doğrula
         run: |
           test -d IPiOS.xcodeproj || { echo "::error::IPiOS.xcodeproj üretilmedi"; exit 1; }
@@ -101,9 +123,13 @@ jobs:
           xcodebuild -project IPiOS.xcodeproj \
             -scheme IPiOS \
             -destination 'generic/platform=iOS Simulator' \
+            -clonedSourcePackagesDirPath package-cache \
             $SIGNING \
             build
 
+      # `package-cache` her iki derlemede de verilir. Verilmezse xcodebuild
+      # paketi yeniden çözer ve indirir — yani önbellekten kazanılan süre
+      # ikinci derlemede geri kaybedilir.
       - name: IPA oluştur ve paketle (iOS Cihaz)
         run: |
           xcodebuild -project IPiOS.xcodeproj \
@@ -111,6 +137,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData \
+            -clonedSourcePackagesDirPath package-cache \
             $SIGNING \
             build
 
@@ -165,6 +192,14 @@ jobs:
       - name: Xcode projesini üret
         run: xcodegen generate
 
+      - name: VLCKit paketini önbelleğe al
+        uses: actions/cache@v4
+        with:
+          path: package-cache
+          key: vlckit-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: |
+            vlckit-${{ runner.os }}-
+
       - name: Testleri çalıştır
         run: |
           set -euo pipefail
@@ -196,6 +231,7 @@ jobs:
           xcodebuild -project IPiOS.xcodeproj \
             -scheme IPiOS \
             -destination "platform=iOS Simulator,name=$SECILEN" \
+            -clonedSourcePackagesDirPath package-cache \
             $SIGNING \
             test
 

@@ -28,10 +28,19 @@ DerivedData/
 # olarak yüklenir, depoda tutulmasına gerek yoktur.
 static-check.txt
 
-# --- Swift Package Manager (kullanılmıyor ama ihtimale karşı) ---
+# --- Swift Package Manager ---
+# `Package.resolved` bilerek dışlanmaz ama depoda da tutulmaz: proje XcodeGen
+# ile üretildiği ve paket `project.yml` içinde `exactVersion` ile sabitlendiği
+# için sürüm zaten tek bir yerde yazılıdır. İki yerde tutmak, birinin
+# güncellenip diğerinin unutulması riskini getirirdi.
 .swiftpm/
 .build/
 Package.resolved
+
+# --- CI paket önbelleği ---
+# `actions/cache` tarafından doldurulur (VLCKit ikilisi ~920 MB); depoda
+# tutulmaz, yalnızca iş akışı içinde kullanılır.
+package-cache/
 
 # --- Bağımlılık yöneticileri (projede üçüncü taraf bağımlılık yok) ---
 Pods/
