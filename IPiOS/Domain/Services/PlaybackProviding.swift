@@ -13,9 +13,10 @@ enum PlaybackState: Equatable, Sendable {
 
 /// Oynatma motoru arayüzü.
 ///
-/// Somut implementasyon `AVPlayerEngine`. Arayüz ayrı tutulur ki ileride
-/// VLCKit tabanlı bir motor (örneğin TS akışlarında daha geniş codec desteği
-/// için) aynı ekranları bozmadan eklenebilsin.
+/// Somut implementasyon `VLCPlayerEngine` (libvlc/VLCKit tabanlı). Arayüz ayrı
+/// tutulması işe yaradı: motor bir kez, ekranlara hiç dokunulmadan değiştirildi.
+/// Sağlayıcı filmleri yalnızca Matroska olarak sunduğu ve `AVFoundation`'ın
+/// Matroska demuxer'ı olmadığı için bu ayrım sayesinde geçiş tek dosyada kaldı.
 @MainActor
 protocol PlaybackProviding: AnyObject {
 

@@ -7,7 +7,7 @@ import SwiftUI
 /// `fullScreenCover` kurmak yerine tüm istekler burada toplanır; oynatıcı
 /// uygulamanın en üst katmanında tek bir kez sunulur.
 ///
-/// Tek örnek olması ayrıca motorun (`AVPlayerEngine`) ekran değişse bile
+/// Tek örnek olması ayrıca motorun (`VLCPlayerEngine`) ekran değişse bile
 /// kesintisiz devam etmesini sağlar.
 @MainActor
 final class PlayerPresenter: ObservableObject {

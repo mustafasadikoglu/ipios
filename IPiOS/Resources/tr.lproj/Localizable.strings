@@ -186,7 +186,6 @@
 "player.action.playPause"       = "Oynat / Duraklat";
 "player.action.forward"         = "10 saniye ileri";
 "player.action.backward"        = "10 saniye geri";
-"player.error.tsUnsupported"    = "Bu yayın MPEG-TS biçiminde ve doğrudan oynatılamıyor. Kaynak sağlayıcınızdan HLS (.m3u8) çıkışı isteyin.";
 "player.hint.tap"               = "Kontroller için dokunun";
 /* Oynatma hatasının **ölçülmüş** nedenleri. Genel "Oynatma başlatılamadı."
    metni kullanıcıya ne olduğunu söylemiyordu; bu metinler akışın taşıdığı

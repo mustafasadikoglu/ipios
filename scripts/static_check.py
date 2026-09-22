@@ -27,6 +27,15 @@ için (Ubuntu job'ı) hem de yerelde kullanılabilir. Denetledikleri:
        (sabit değilse XcodeGen objectVersion 77 üretir ve Xcode 15.x
        projeyi açamaz — bkz. README, "GitHub üzerinden derleme")
 
+  Bağımlılık sözleşmesi
+   12. VLCKit paketi `project.yml` içinde **sabit sürümle** bağlı mı?
+       (VideoLAN'ın etiketleri tutarsız biçimde atıldığı için sürüm aralığı
+       verilirse SwiftPM kendi seçer ve beklenmedik bir derlemeye düşer)
+   13. Oynatma çekirdeği libvlc mi? `AVPlayer` kalıntısı var mı?
+       (AVFoundation Matroska demuxer'ı olmadığı için geri dönüş sessizce
+       filmlerin oynamamasına yol açar — bu projenin asıl kusuruydu)
+   14. Oynatıcı üzerinden ses seviyesi yanlış ölçekte mi ayarlanıyor?
+
 Çıkış kodu 0 ise sorun yok, 1 ise en az bir HATA var. Uyarılar (ör. kullanılmayan
 anahtar) çıkış kodunu değiştirmez.
 """
@@ -103,6 +112,62 @@ def strip_yaml_comments(text: str) -> str:
                 break
         satirlar.append(satir[:kesim])
     return "\n".join(satirlar)
+
+
+def strip_swift_comments(text: str) -> str:
+    """Swift yorumlarını (`//` ve `/* */`) satır numarasını koruyarak siler.
+
+    Neden gerekli: bu projede yorumlar **tarihçeyi** anlatır (ör. "AVPlayer
+    döneminde bu görünüm `AVPlayerLayer` barındırıyordu"). Kalıntı denetimi
+    yorumları sayarsa, doğru yazılmış bir açıklama HATA üretir ve denetim
+    susturulmaya çalışılır — gerçek kalıntı da o sırada gözden kaçar.
+
+    Dizge sabitleri korunur: bir API adı dizgenin içinde geçiyorsa bu hâlâ
+    koddur (ör. teşhis metni), yorum değildir.
+    """
+    sonuc: list[str] = []
+    i = 0
+    n = len(text)
+    # Tırnak içinde miyiz? Basit ama yeterli: bu dosyalarda kaçışlı tırnak ve
+    # çok satırlı dizgeler var, ikisi de bu bayrakla doğru işlenir.
+    tirnak = False
+    blok = False
+    while i < n:
+        c = text[i]
+        if blok:
+            if text.startswith("*/", i):
+                sonuc.append("  ")
+                i += 2
+                blok = False
+            else:
+                sonuc.append("\n" if c == "\n" else " ")
+                i += 1
+            continue
+        if tirnak:
+            if c == "\\" and i + 1 < n:
+                sonuc.append(text[i : i + 2])
+                i += 2
+                continue
+            if c == '"':
+                tirnak = False
+            sonuc.append(c)
+            i += 1
+            continue
+        if text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                sonuc.append(" ")
+                i += 1
+            continue
+        if text.startswith("/*", i):
+            sonuc.append("  ")
+            i += 2
+            blok = True
+            continue
+        if c == '"':
+            tirnak = True
+        sonuc.append(c)
+        i += 1
+    return "".join(sonuc)
 
 
 def strings_yukle(path: Path) -> list[tuple[str, str, int]]:
@@ -308,12 +373,94 @@ def proje_tanimi() -> None:
         uyari("ci.yml içinde objectVersion denetimi bulunamadı")
 
 
+# --------------------------------------------------------------------------
+# 12-14: Bağımlılık sözleşmesi (VLCKit geçişi)
+# --------------------------------------------------------------------------
+def bagimlilik_sozlesmesi() -> None:
+    """Oynatma çekirdeğinin libvlc olduğunu ve öyle kaldığını doğrular.
+
+    Bu denetimler "derleme geçti mi" sorusunu değil, **ürün kusurunun geri
+    gelip gelmediğini** sorar. `AVPlayer` Matroska demuxer'ı olmadığı için
+    sağlayıcının filmleri oynamıyordu; oynatma yolunun AVFoundation'a dönmesi
+    derlemeyi bozmaz, yalnızca filmleri sessizce oynatmaz hâle getirir. Bu
+    yüzden burada teste bağlanır.
+    """
+    yaz()
+    yaz("=== BAĞIMLILIK SÖZLEŞMESİ ===")
+
+    # 12. Paket sabit sürümle bağlı mı?
+    yol = KOK / "project.yml"
+    govde = strip_yaml_comments(strip_comments(yol.read_text(encoding="utf-8")))
+    if "vlckit" not in govde.lower():
+        hata(
+            "project.yml: VLCKit paketi bağlı değil. Sağlayıcı filmleri yalnızca "
+            "Matroska sunuyor ve AVFoundation bunu çözemez (bkz. docs/MIMARI.md)."
+        )
+    elif not re.search(r"^\s*exactVersion:\s*\S+", govde, re.M):
+        hata(
+            "project.yml: VLCKit için 'exactVersion' yok. VideoLAN'ın etiketleri "
+            "tutarsız atıldığı için (ör. '4.0.0a21' geçersiz semver) bir sürüm "
+            "aralığı verildiğinde SwiftPM geçerli en yüksek etiketi kendi seçer."
+        )
+    else:
+        surum = re.search(r"^\s*exactVersion:\s*(\S+)", govde, re.M).group(1)
+        yaz(f"  VLCKit: exactVersion {surum}")
+
+    # 13. Oynatma yolu libvlc mi, AVFoundation'a dönmüş mü?
+    oynatici = swift_dosyalari("IPiOS/Player")
+    motorlar = [p for p in oynatici if p.name.endswith("PlayerEngine.swift")]
+    adlar = sorted(p.name for p in motorlar)
+    if adlar != ["VLCPlayerEngine.swift"]:
+        hata(
+            f"IPiOS/Player altında beklenen tek motor VLCPlayerEngine.swift; "
+            f"bulunan: {', '.join(adlar) or '(yok)'}"
+        )
+
+    # `import AVFoundation`/`AVKit` oynatma katmanında kalıntı olabilir; ikisi de
+    # zararsız görünür ama oynatmayı sessizce AVPlayer yoluna çeviren kodun
+    # habercisidir. `AudioSessionManager` bilinçli olarak hariçtir: ses
+    # oturumu yönetimi için AVFoundation doğru çerçevedir.
+    for path in oynatici:
+        rel = path.relative_to(KOK).as_posix()
+        # Yorumlar ayıklanır: bu dosyalarda yorumlar VLC geçişinin **tarihçesini**
+        # anlatır ("AVPlayer döneminde ... AVPlayerLayer ..."). Yorumu kod saymak
+        # doğru yazılmış bir açıklamayı hataya çevirirdi.
+        src = strip_swift_comments(path.read_text(encoding="utf-8"))
+        if path.name == "AudioSessionManager.swift":
+            continue
+        for cerceve in ("AVFoundation", "AVKit"):
+            if re.search(rf"^\s*import\s+{cerceve}\s*$", src, re.M):
+                hata(f"{rel}: '{cerceve}' içe aktarılıyor — oynatma yolu VLCKit olmalı")
+        for api in ("AVPlayer(", "AVPlayerItem", "AVPlayerLayer", "AVURLAsset"):
+            if api in src:
+                hata(f"{rel}: '{api}' kullanılıyor — oynatma yolu VLCKit olmalı")
+
+    yaz(f"  oynatma motoru: {adlar[0] if adlar else '(yok)'}")
+
+    # 14. Ses seviyesi ölçeği.
+    #
+    # `VLCAudio.volume` bir **tamsayı** ölçektir (0–100 ve üzeri); arayüz ise
+    # 0...1 aralığında çalışır. Dönüşüm yapılmadan atanırsa 0.7 gibi bir değer
+    # sesi tamamen kapatır ve kusur "ses çıkmıyor" olarak görünür — kodek
+    # sanılıp boşuna kodek aranır.
+    for path in oynatici:
+        src = path.read_text(encoding="utf-8")
+        rel = path.relative_to(KOK).as_posix()
+        if "audio.volume" in src and "Int(" not in src:
+            hata(
+                f"{rel}: 'audio.volume'a dönüşüm olmadan değer atanıyor. "
+                f"VLCAudio.volume tamsayı bir ölçektir; 0...1 aralığındaki bir "
+                f"değer doğrudan verilirse ses kapanır."
+            )
+
+
 def main() -> int:
     yerelleştirme()
     kaynak_yapisi()
     info_plist()
     dokuman_agaci()
     proje_tanimi()
+    bagimlilik_sozlesmesi()
 
     yaz()
     yaz("=== SONUÇ ===")

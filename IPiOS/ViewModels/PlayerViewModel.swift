@@ -1,11 +1,10 @@
 import Foundation
 import SwiftUI
-import AVKit
 import Combine
 
 /// Oynatıcı ekranının durumu.
 ///
-/// Oynatma motoru (`AVPlayerEngine`) uygulama ömrü boyunca tektir; bu sınıf
+/// Oynatma motoru (`VLCPlayerEngine`) uygulama ömrü boyunca tektir; bu sınıf
 /// onu ekrana bağlar: hangi öğenin oynatıldığını, hata durumunu, ekran
 /// kilidini ve PiP denetleyicisini yönetir.
 @MainActor
@@ -15,9 +14,8 @@ final class PlayerViewModel: ObservableObject {
     @Published var showsControls = true
     @Published var isFullscreen = false
     @Published var showsErrorAlert = false
-    @Published var showsTSWarning = false
 
-    let engine: AVPlayerEngine
+    let engine: VLCPlayerEngine
     private let environment: AppEnvironment
     private var controlsTask: Task<Void, Never>?
     private var stateSubscription: AnyCancellable?
@@ -138,23 +136,17 @@ final class PlayerViewModel: ObservableObject {
     /// kalmasını engeller.
     private func resetErrorState() {
         showsErrorAlert = false
-        showsTSWarning = false
     }
 
     /// Durum aboneliğinden çağrılır.
     ///
-    /// Ham MPEG-TS hatası ayrı bir uyarıyla bildirilir: kullanıcı için anlamlı
-    /// olan "bu yayın biçimi desteklenmiyor" mesajıdır, teknik ayrıntı değil.
-    ///
-    /// Ayrım, motorun teşhis bayrağıyla yapılır; hata metnini karşılaştırmak
-    /// yerelleştirmeye bağlı olarak kırılgan olurdu (bkz.
-    /// `AVPlayerEngine.lastFailureWasUnsupportedFormat`).
+    /// `AVPlayer` döneminde ham MPEG-TS için **ayrı** bir uyarı gösteriliyordu:
+    /// o çerçeve ham TS konteynerini çözemiyordu ve kullanıcıya "bu biçim
+    /// desteklenmiyor" demek gerekiyordu. libvlc ham TS'i sorunsuz oynatır,
+    /// dolayısıyla o ayrım tümüyle anlamını yitirdi. Tek bir hata uyarısı
+    /// kalır ve metin motorun teşhisinden gelir.
     private func handleStateChange(_ state: PlaybackState) {
         guard case .failed = state else { return }
-        if engine.lastFailureWasUnsupportedFormat {
-            showsTSWarning = true
-        } else {
-            showsErrorAlert = true
-        }
+        showsErrorAlert = true
     }
 }

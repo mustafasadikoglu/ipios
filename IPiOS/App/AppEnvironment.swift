@@ -12,7 +12,7 @@ final class AppEnvironment: ObservableObject {
     let favorites: FavoritesRepository
     let recents: RecentsRepository
     let library: ContentLibrary
-    let player: AVPlayerEngine
+    let player: VLCPlayerEngine
 
     /// Kullanıcı tercihleri (yalnızca hassas olmayan ayarlar).
     ///
@@ -52,7 +52,7 @@ final class AppEnvironment: ObservableObject {
         self.recents = recents
         self.library = library
         self.settings = settings
-        self.player = AVPlayerEngine(recents: recents)
+        self.player = VLCPlayerEngine(recents: recents)
 
         // Aktif kaynak değiştiğinde bellekteki liste geçersizleşir: yeni
         // kaynağın kanalları eskisinin üzerine yazılmalı ki kullanıcı bir

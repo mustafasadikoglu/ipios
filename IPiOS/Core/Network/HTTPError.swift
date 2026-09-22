@@ -1,7 +1,7 @@
 import Foundation
 
-/// `NetworkClient` dışında (örneğin AVPlayer hata mesajlarında) kullanılan
-/// ham HTTP durum kodu sarmalayıcısı.
+/// `NetworkClient` dışında, tek bir HTTP yanıtının durum kodunu taşımak için
+/// kullanılan ham sarmalayıcı.
 struct HTTPError: Error, Equatable {
     let statusCode: Int
     let url: URL?

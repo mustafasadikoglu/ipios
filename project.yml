@@ -12,6 +12,32 @@ options:
   # tüm sürümler okur. Ayrıntı: docs/MIMARI.md
   projectFormat: xcode15_3
 
+# --------------------------------------------------------------------------
+# Oynatma çekirdeği: VideoLAN'ın kendi VLCKit paketi.
+#
+# Neden gerekli: ölçüm kesin bir sonuç verdi — sağlayıcı filmleri ve dizileri
+# **yalnızca Matroska (.mkv)** olarak sunuyor. `AVFoundation`'ın Matroska
+# demuxer'ı yoktur; bu bir uygulama kusuru değil, çerçeve sınırıdır. Uzantıyı
+# değiştirmek de kurtarmaz: sunucu `.mp4`/`.m3u8` adreslerinde gövdeyi boş
+# döndürüyor. Bu yüzden eksik olan şey yedek bir adres değil, bir **demuxer**'dır
+# (bkz. docs/MIMARI.md Bölüm 11 ve scripts/xtream_teshis.py).
+#
+# Kaynak olarak `videolan/vlckit` kullanılır: indirme adresi VideoLAN'ın kendi
+# sunucusudur ve paket doğrudan resmî derlemeyi çeker. Üçüncü taraf "umbrella"
+# depolar (ör. birinin S3 kovasına yüklediği ikili) bilinçli olarak tercih
+# edilmedi; CI her koşuda bu adrese gider ve adres bir gün kaybolursa derleme
+# kırılır.
+#
+# `exactVersion` **zorunlu**: VideoLAN'ın etiketleri tutarsız biçimde
+# (`4.0.0a21` geçersiz, `4.0.0-a24` geçerli semver) atıldığı için bir sürüm
+# aralığı verildiğinde SwiftPM geçerli en yüksek etiketi kendi seçer ve
+# beklenmedik bir derlemeye düşebilir. 4.0.0-a24, Swift 5.9 araç zinciriyle
+# uyumlu ve iOS 12+ hedefini destekler.
+packages:
+  VLCKit:
+    url: https://github.com/videolan/vlckit
+    exactVersion: 4.0.0-a24
+
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -28,8 +54,24 @@ targets:
       - path: IPiOS
         excludes:
           - "Resources/Info.plist"
+    dependencies:
+      - package: VLCKit
+        product: VLCKit
     settings:
       base:
+        # libvlc, C++ çalışma zamanına ve paketin kendi bağlantı ayarlarında
+        # bildirdiği sistem kütüphanelerine dayanır. SwiftPM'in
+        # `linkerSettings` bildirimi XcodeGen'in ürettiği projeye her zaman
+        # yansımadığı için burada açıkça verilir; eksik olduğunda derleme
+        # "Undefined symbols" ya da çalışma anında "dylib yüklenemedi" ile
+        # düşer ve nedeni görünmez.
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lc++"
+          - "-lz"
+          - "-lbz2"
+          - "-lxml2"
+          - "-liconv"
         PRODUCT_BUNDLE_IDENTIFIER: com.mustafa.ipios
         PRODUCT_NAME: IPiOS
         INFOPLIST_FILE: IPiOS/Resources/Info.plist

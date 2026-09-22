@@ -77,12 +77,15 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
             // Canlı yayında uzantı **her zaman** `m3u8`'dir; `stream_type`
             // alanı kullanılmaz.
             //
-            // Neden: Xtream `stream_type` alanı canlı yayınlar için tipik olarak
-            // `"ts"` değerini taşır ve `/live/<user>/<pass>/<id>.ts` ham bir
-            // MPEG-TS akışıdır. `AVPlayer` ham TS konteynerini çözemez — yalnızca
-            // HLS paketlemesi içindeki TS parçalarını oynatabilir. `.ts` adresi
-            // verildiğinde oynatıcı hata vermeden siyah ekranda kalıyordu.
-            // Sunucular aynı yayını HLS olarak da sunduğu için `.m3u8` istenir.
+            // Gerekçe ölçüme dayanır, çerçeve sınırına değil: sağlayıcı aynı
+            // kanalı hem ham MPEG-TS (`.ts`) hem HLS (`.m3u8`) olarak sunuyor ve
+            // HLS yolu ölçümde gerçek veri döndürdü. Bu, `AVPlayer` döneminde
+            // **zorunluluktu** (o çerçeve ham TS konteynerini çözemezdi);
+            // libvlc ham TS'i de oynatabildiği için artık bir **tercih**tir.
+            // Tercih edilmesinin nedeni, sağlayıcının HLS yolunu canlı yayın
+            // için birincil yol olarak tutması ve sunucuya daha küçük parçalar
+            // hâlinde bağlanılmasıdır. Yanlış çıkarsa motor `.ts` adayını da
+            // dener (bkz. `VLCPlayerEngine.playbackCandidates`).
             // (`MIMARI.md` Bölüm 11 — sağlayıcı tutarsızlığı.)
             guard let streamURL = makeStreamURL(
                 streamID: id,
@@ -448,11 +451,11 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
 
     /// `m3u8`/`ts`/`mp4` gibi uzantıyı normalize eder.
     ///
-    /// `ts` bilinçli olarak `m3u8`'e çevrilir: `AVPlayer` ham MPEG-TS
-    /// konteynerini çözemez, dolayısıyla `.ts` uzantılı bir adres hiçbir
-    /// koşulda oynatılamaz. Sağlayıcı `container_extension` alanında `"ts"`
-    /// bildirse bile HLS yolu denenmelidir; aksi halde oynatıcı hata vermeden
-    /// siyah ekranda kalır. (Güvenlik ağı — `MIMARI.md` Bölüm 11.)
+    /// `ts` ve `mpegts` bilinçli olarak `m3u8`'e çevrilir: bu uzantılar canlı
+    /// yayında ham MPEG-TS anlamına gelir ve sağlayıcı aynı kanalı HLS olarak da
+    /// sunduğundan HLS yolu tercih edilir (gerekçe: `channels(categoryID:)`
+    /// içindeki not). Bu, libvlc ham TS'i çözemediği için değil, ölçümde HLS
+    /// yolunun gerçek veri döndürdüğü görüldüğü içindir. (`MIMARI.md` Bölüm 11.)
     ///
     /// Ölçüt **uzantının kendisidir**, çağrının türü değil. Daha önce burada
     /// tüm yayın adresleri HLS'e zorlanıyordu; film ve dizilerde ise
@@ -467,9 +470,9 @@ final class XtreamClient: PlaylistProviding, @unchecked Sendable {
         case "m3u8", "hls": return hlsExtension
         // Ham MPEG-TS konteyneri HLS paketlemesine çevrilir (canlı yayın).
         case "ts", "mpegts": return hlsExtension
-        // Video konteynerleri olduğu gibi bırakılır; `AVPlayer` bunları
-        // desteklemiyorsa adres denemesi başarısız olur ve yedek aday devreye
-        // girer (bkz. `AVPlayerEngine.playbackCandidates`).
+        // Video konteynerleri olduğu gibi bırakılır; adres denemesi başarısız
+        // olursa yedek aday devreye girer (bkz.
+        // `VLCPlayerEngine.playbackCandidates`).
         case "mp4", "mkv", "avi", "mov", "webm", "mpg", "mpeg", "m2ts": return hint
         default: return hint.replacingOccurrences(of: ".", with: "")
         }

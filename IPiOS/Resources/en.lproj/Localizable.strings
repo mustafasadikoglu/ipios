@@ -186,7 +186,6 @@
 "player.action.playPause"       = "Play / Pause";
 "player.action.forward"         = "Skip 10 seconds forward";
 "player.action.backward"        = "Skip 10 seconds back";
-"player.error.tsUnsupported"    = "This stream is MPEG-TS and cannot be played directly. Ask your provider for an HLS (.m3u8) output.";
 "player.hint.tap"               = "Tap to show controls";
 /* Measured reasons for a playback failure. The generic "Playback could not be
    started." text told the user nothing; these name the actual format/codec the

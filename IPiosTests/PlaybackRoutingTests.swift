@@ -4,13 +4,15 @@ import XCTest
 /// Oynatma adresi seçiminin ve Xtream uzantı normalleştirmesinin kurallarını
 /// doğrular.
 ///
-/// Neden gerekli: canlı yayınların oynatılmamasının kök nedeni bu iki kuraldı.
-/// Xtream panelleri canlı yayın için `stream_type = "ts"` bildirir ve
-/// `/live/<user>/<pass>/<id>.ts` ham bir MPEG-TS akışıdır; `AVPlayer` bu
-/// konteyneri çözemez ve hata vermeden siyah ekranda kalır. Yalnızca HLS
-/// paketlemesi (`.m3u8`) oynatılabilir. Bu kurallar sessizce geri alınırsa
-/// kusur yeniden ortaya çıkar ve yalnızca gerçek bir sağlayıcıyla denenerek
-/// fark edilebilir.
+/// Neden gerekli: kullanıcının bildirdiği "filmler çalışmıyor" kusurunun kök
+/// nedeni sağlayıcının VOD'u **yalnızca Matroska (.mkv)** olarak sunması ve
+/// `AVFoundation`'ın Matroska demuxer'ının olmamasıydı. Bu yüzden oynatma
+/// çekirdeği libvlc'ye taşındı. Aday listesi bu geçişte **kasıtlı olarak
+/// kısaldı**: uzantıyı değiştirip yedek adres denemek artık gecikmeden başka
+/// bir şey üretmiyor, çünkü ölçüm sunucunun `.mkv` dışındaki uzantılarda
+/// gövdeyi **boş** döndürdüğünü gösterdi (bkz. `scripts/xtream_teshis.py`).
+/// Bu kurallar sessizce geri alınırsa kusur yeniden ortaya çıkar ve yalnızca
+/// gerçek bir sağlayıcıyla denenerek fark edilebilir.
 final class PlaybackRoutingTests: XCTestCase {
 
     // MARK: - Yardımcılar
@@ -18,397 +20,198 @@ final class PlaybackRoutingTests: XCTestCase {
     /// Testte sahte bir tip yazmak yerine üretimdeki `AnyMediaItem` kullanılır:
     /// `playbackCandidates` gerçekte bu tipi görür, dolayısıyla adres üretimi
     /// sırasında tip kaynaklı bir sapma da bu testte ortaya çıkar.
-    private func item(_ url: String) -> AnyMediaItem {
+    private func item(_ url: String, kind: CategoryKind = .live) -> AnyMediaItem {
         AnyMediaItem(
             id: "1",
             title: "Örnek",
             imageURL: nil,
             streamURL: URL(string: url)!,
             sourceID: UUID(),
-            kind: .live
+            kind: kind
         )
     }
 
     private let base = "http://cdn.example.com/live/user/pass/123"
+    private let vodBase = "http://cdn.example.com/movie/user/pass/456"
 
-    // MARK: - Aday sırası
+    // MARK: - Canlı yayın
 
-    /// Canlı yayında HLS birincil, ham TS yedek olmalı.
+    /// Canlı yayında asıl adres korunur; HLS ve ham TS sırayla yedek olur.
+    ///
+    /// İkisi de denenir çünkü libvlc ham MPEG-TS'i de HLS'i de çözer — hangisini
+    /// sunacağını sağlayıcı belirler ve önceden bilinemez.
     @MainActor
-    func testLiveCandidatesPreferHLSThenTS() {
-        let candidates = AVPlayerEngine.playbackCandidates(
+    func testLiveCandidatesKeepPrimaryThenTryBothCarriers() {
+        let candidates = VLCPlayerEngine.playbackCandidates(
             for: item("\(base).m3u8"), isLive: true
         )
         XCTAssertEqual(
             candidates.map(\.absoluteString),
-            ["\(base).m3u8", "\(base).ts"],
-            "Canlı yayında önce HLS denenmeli, ham TS yalnızca yedek olmalı"
+            ["\(base).m3u8", "\(base).ts"]
         )
     }
 
-    /// Kaynak `.ts` bildirse bile HLS önce denenmeli: asıl kusur buydu.
+    /// Asıl adres ham TS olsa bile HLS yedek olarak denenir.
     @MainActor
-    func testLiveCandidatesLiftRawTransportStreamToHLS() {
-        let candidates = AVPlayerEngine.playbackCandidates(
+    func testLiveCandidatesFromTSIncludeHLS() {
+        let candidates = VLCPlayerEngine.playbackCandidates(
             for: item("\(base).ts"), isLive: true
         )
-        XCTAssertEqual(candidates.first?.absoluteString, "\(base).m3u8")
-        XCTAssertEqual(candidates.count, 2)
-    }
-
-    /// VOD'da asıl adres **her zaman** ilk sırada denenir; sağlayıcının
-    /// bildirdiği biçim destekleniyorsa ona öncelik verilir.
-    @MainActor
-    func testVODAlwaysTriesDeclaredAddressFirst() {
-        for ext in ["mp4", "mov", "m2ts", "mkv", "avi", "webm"] {
-            let url = "http://cdn.example.com/movie/user/pass/9.\(ext)"
-            let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
-            XCTAssertEqual(candidates.first?.absoluteString, url, "\(ext) ilk aday olmalı")
-        }
-    }
-
-    /// `mp4` her durumda denenir: Xtream VOD'un standart biçimidir ve
-    /// sağlayıcı `container_extension` alanında farklı bir şey bildirse bile
-    /// dosya çoğu zaman `.mp4` olarak da çalışır.
-    @MainActor
-    func testVODAlwaysIncludesMP4Candidate() {
-        for ext in ["mkv", "avi", "webm", "m2ts", "mov", "flv", "wmv"] {
-            let url = "http://cdn.example.com/movie/user/pass/9.\(ext)"
-            let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
-            XCTAssertTrue(
-                candidates.contains { $0.pathExtension == "mp4" },
-                "\(ext) için mp4 yedeği bulunmalı"
-            )
-        }
-    }
-
-    /// mp4 zaten asıl adresteyse yedek olarak **tekrar eklenmemeli**.
-    @MainActor
-    func testVODDoesNotDuplicateMP4WhenItIsPrimary() {
-        let url = "http://cdn.example.com/movie/user/pass/9.mp4"
-        let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
         XCTAssertEqual(
-            candidates.filter { $0.pathExtension == "mp4" }.count,
-            1,
-            "asıl adres mp4 ise ikinci kez eklenmemeli"
+            candidates.map(\.absoluteString),
+            ["\(base).ts", "\(base).m3u8"]
         )
     }
 
-    /// VOD'da HLS **en son** çare olarak denenir.
+    /// Uzantısız adreste türetilecek yedek yoktur; asıl adres tek aday kalır.
+    @MainActor
+    func testLiveCandidatesWithoutExtensionKeepPrimaryOnly() {
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item(base), isLive: true
+        )
+        XCTAssertEqual(candidates.count, 1)
+        XCTAssertEqual(candidates.first?.absoluteString, base)
+    }
+
+    // MARK: - VOD / dizi
+
+    /// **Kök nedeni kapatan test.** Sağlayıcı VOD'u `.mkv` olarak sunar ve
+    /// libvlc bu konteyneri doğrudan çözer; asıl adres listenin **başında**
+    /// olmalıdır. Sıra değişirse kullanıcı her filmde önce çalışmayan bir
+    /// yedek adresi beklemek zorunda kalır.
+    @MainActor
+    func testVODPrimaryMatroskaIsFirstCandidate() {
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item("\(vodBase).mkv", kind: .movie), isLive: false
+        )
+        XCTAssertEqual(candidates.first?.pathExtension, "mkv")
+        XCTAssertEqual(candidates.first?.absoluteString, "\(vodBase).mkv")
+    }
+
+    /// VOD'da `.m3u8` yedeği **üretilmez**: VOD'un HLS olarak paketlendiği bir
+    /// panel bu sağlayıcıda gözlenmedi ve her yedek deneme zaman aşımına kadar
+    /// bekleyip kullanıcıya gecikme olarak yansıyor.
+    @MainActor
+    func testVODCandidatesDoNotIncludeHLSFallback() {
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item("\(vodBase).mkv", kind: .movie), isLive: false
+        )
+        XCTAssertFalse(
+            candidates.contains { $0.pathExtension == "m3u8" },
+            "VOD adaylarında HLS olmamalı: \(candidates)"
+        )
+    }
+
+    /// `.mp4` yedeği korunur: azınlıkta da olsa VOD'u H.264/MP4 sunan paneller
+    /// vardır ve bir deneme daha yapmak kesin hata göstermekten iyidir.
+    @MainActor
+    func testVODCandidatesIncludeMP4FallbackAfterPrimary() {
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item("\(vodBase).mkv", kind: .movie), isLive: false
+        )
+        XCTAssertEqual(
+            candidates.map(\.pathExtension),
+            ["mkv", "mp4"]
+        )
+    }
+
+    /// Asıl adres zaten `.mp4` ise kendini yineleyen bir yedek üretilmez.
+    @MainActor
+    func testVODCandidatesDoNotDuplicateMP4() {
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item("\(vodBase).mp4", kind: .movie), isLive: false
+        )
+        XCTAssertEqual(candidates.count, 1)
+    }
+
+    /// Asıl adres zaten `.m3u8` ise `.mp4` yedeği eklenir; aksi hâlde listenin
+    /// tamamı tek bir adresten ibaret kalırdı.
+    @MainActor
+    func testVODCandidatesFromHLSStillGetMP4Fallback() {
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item("\(vodBase).m3u8", kind: .movie), isLive: false
+        )
+        XCTAssertEqual(candidates.map(\.pathExtension), ["m3u8", "mp4"])
+    }
+
+    // MARK: - Uzantı değiştirme güvenliği
+
+    /// Şifresinde eğik çizgi bulunan bir kullanıcıda yolun bozulmaması gerekir.
     ///
-    /// Xtream VOD'u standart olarak HLS ile sunmaz; bu yüzden `.m3u8` birincil
-    /// yedek değildir. Ancak VOD'u HLS olarak da paketleyen paneller vardır ve
-    /// bir deneme daha yapmak, kullanıcıya kesin bir hata göstermekten iyidir.
+    /// Ölçülmüş kusur: eski kod `url.path` (çözülmüş) alıp `components.path`
+    /// ayarlayıcısına veriyordu; o ayarlayıcı `/` karakterini kodlamaz. Asıl
+    /// adreste `%2F` olarak kodlanmış karakter çözülüp ham `/` olarak geri
+    /// yazılıyor, yol bir fazla parçaya bölünüyor ve kimlik bilgisi yanlış
+    /// okunuyordu. Belirti sinsiydi: **yalnızca yedek adres** bozulur, asıl
+    /// adres doğru kalır — yani kimi film açılır, kimi açılmaz.
     @MainActor
-    func testVODTriesHLSAsLastResortOnly() {
-        let url = "http://cdn.example.com/movie/user/pass/9.mkv"
-        let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
-        XCTAssertEqual(
-            candidates.map(\.absoluteString),
-            [
-                url,
-                "http://cdn.example.com/movie/user/pass/9.mp4",
-                "http://cdn.example.com/movie/user/pass/9.m3u8"
-            ],
-            "sıra: asıl → mp4 → m3u8 olmalı"
+    func testExtensionReplacementPreservesEncodedSlash() {
+        let url = "http://cdn.example.com/movie/user/pa%2Fss/456.mkv"
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item(url, kind: .movie), isLive: false
         )
-    }
 
-    /// VOD'da tek adayla yetinilmemeli: "canlı çalışıyor, film/dizi
-    /// çalışmıyor" farkının kök nedeni buydu.
-    ///
-    /// Canlı yayında uzantıdan bağımsız olarak her zaman iki aday üretilir ve
-    /// biri tutmazsa diğeri denenir. VOD'da yedek yalnızca çözülemeyen
-    /// konteynerlerde üretiliyordu; sağlayıcı oynatılabilir görünen bir uzantı
-    /// bildirdiğinde liste tek elemana düşüyor ve o adres tutmazsa kullanıcı
-    /// doğrudan hata uyarısı görüyordu.
-    @MainActor
-    func testVODNeverReliesOnASingleCandidate() {
-        for ext in ["mp4", "mov", "m2ts", "mkv", "avi", "webm", "flv"] {
-            let url = "http://cdn.example.com/movie/user/pass/9.\(ext)"
-            let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
-            XCTAssertGreaterThan(
-                candidates.count, 1,
-                "\(ext) için yedek aday üretilmeli — tek adayla kalınmamalı"
-            )
+        guard candidates.count == 2 else {
+            return XCTFail("iki aday bekleniyordu, gelen: \(candidates)")
         }
-    }
-
-    /// Sorgu dizesi yedek adreslere de taşınmalı; düşerse sağlayıcı isteği
-    /// reddeder.
-    @MainActor
-    func testVODFallbackPreservesQueryString() {
-        let candidates = AVPlayerEngine.playbackCandidates(
-            for: item("http://cdn.example.com/movie/user/pass/9.mkv?token=abc"),
-            isLive: false
+        let fallback = candidates[1].absoluteString
+        XCTAssertTrue(
+            fallback.contains("pa%2Fss"),
+            "yedek adreste kodlanmış eğik çizgi korunmalıydı: \(fallback)"
         )
-        XCTAssertEqual(
-            candidates.map(\.absoluteString),
-            [
-                "http://cdn.example.com/movie/user/pass/9.mkv?token=abc",
-                "http://cdn.example.com/movie/user/pass/9.mp4?token=abc",
-                "http://cdn.example.com/movie/user/pass/9.m3u8?token=abc"
-            ]
+        XCTAssertFalse(
+            fallback.contains("/pa/ss/"),
+            "kimlik bilgisi yol parçalarına bölünmemeliydi: \(fallback)"
         )
     }
 
-    /// Yedek adres üretilirken kimlik bilgisinin kodlaması **aynen** korunmalı.
-    ///
-    /// Ölçülmüş kusur: uzantı değiştirme, çözülmüş yol üzerinden yapılıyordu.
-    /// `URLComponents.path` ayarlayıcısı `/` karakterini kodlamaz; şifresinde
-    /// eğik çizgi olan kullanıcıda asıl adreste `%2F` olarak duran karakter
-    /// çözülüp ham `/` olarak geri yazılıyor, yol bir fazla parçaya bölünüyor
-    /// ve kimlik yanlış okunuyordu. Kusur yalnızca **yedek** adreste görünür;
-    /// asıl adres doğru kalır. Yani belirti "bazı filmler açılıyor, bazıları
-    /// açılmıyor" olurdu.
-    ///
-    /// Not: burada akla ilk gelen "iki kez kodlama" (`%2540`) kusuru
-    /// **yoktu** — o varsayım ölçülerek elendi, çünkü eski kod çözüp yeniden
-    /// kodladığı için tur gidiş-dönüşü kararlıydı.
+    /// Uzantı son yol parçası içinde aranmalı; üst dizinlerdeki noktalar
+    /// (`/a.b/456`) uzantı sanılmamalıdır.
     @MainActor
-    func testFallbackCandidatesPreserveEncodedPath() {
-        let url = "http://cdn.example.com/movie/user/p%40ss/9.mkv"
-        let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
-        XCTAssertEqual(
-            candidates.map(\.absoluteString),
-            [
-                url,
-                "http://cdn.example.com/movie/user/p%40ss/9.mp4",
-                "http://cdn.example.com/movie/user/p%40ss/9.m3u8"
-            ]
+    func testExtensionIsNotReadFromParentDirectories() {
+        let url = "http://cdn.example.com/a.b/user/pass/456"
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item(url, kind: .movie), isLive: false
         )
-        for candidate in candidates {
-            XCTAssertFalse(
-                candidate.absoluteString.contains("%25"),
-                "yol iki kez kodlanmamalı: \(candidate.absoluteString)"
-            )
+        // Uzantı yok: türetilecek yedek adres de yoktur, asıl adres korunur.
+        XCTAssertEqual(candidates.count, 1)
+        XCTAssertEqual(candidates.first?.absoluteString, url)
+    }
+
+    /// Nokta ile **başlayan** son parça (gizli dosya benzeri) uzantı sayılmaz;
+    /// aksi hâlde `/456.` gibi bir adres tümüyle değiştirilerek bozulurdu.
+    @MainActor
+    func testLeadingDotInLastSegmentIsNotAnExtension() {
+        let url = "http://cdn.example.com/movie/user/pass/.hidden"
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item(url, kind: .movie), isLive: false
+        )
+        XCTAssertEqual(candidates.count, 1)
+        XCTAssertEqual(candidates.first?.absoluteString, url)
+    }
+
+    /// Yedek adresler asıl adresle **aynı sorgu/sorgu parametrelerini** korur:
+    /// sağlayıcı kimliği sorguda taşıyan panellerde bunlar düşerse yedek adres
+    /// yetkisiz olur ve teşhis yanlış çıkar.
+    @MainActor
+    func testFallbackKeepsQueryItems() {
+        let url = "http://cdn.example.com/movie/user/pass/456.mkv?token=abc123"
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item(url, kind: .movie), isLive: false
+        )
+        guard candidates.count == 2 else {
+            return XCTFail("iki aday bekleniyordu, gelen: \(candidates)")
         }
+        XCTAssertEqual(candidates[1].query, "token=abc123")
     }
 
-    /// Eğik çizgi içeren kimlik bilgisi yedek adreste yol parçası sayısını
-    /// **değiştirmemeli**. Bu, kusurun doğrudan testidir: bölünme olursa
-    /// kullanıcı adı ile şifre arasına fazladan bir parça girer ve sağlayıcı
-    /// isteği reddeder.
+    /// Dizi bölümleri de VOD gibi ele alınır; tür ayrımı adres üretimini
+    /// değiştirmemelidir.
     @MainActor
-    func testFallbackCandidatesDoNotSplitEncodedSlash() {
-        let url = "http://cdn.example.com/movie/user/p%2Fa/9.mkv"
-        let candidates = AVPlayerEngine.playbackCandidates(for: item(url), isLive: false)
-        XCTAssertEqual(candidates.count, 3)
-        for candidate in candidates {
-            XCTAssertEqual(
-                candidate.pathComponents.count,
-                URL(string: url)!.pathComponents.count,
-                "yol parça sayısı değişmemeli: \(candidate.absoluteString)"
-            )
-            XCTAssertTrue(
-                candidate.absoluteString.contains("p%2Fa"),
-                "kimlik kodlaması korunmalı: \(candidate.absoluteString)"
-            )
-        }
-        XCTAssertEqual(
-            candidates.last?.absoluteString,
-            "http://cdn.example.com/movie/user/p%2Fa/9.m3u8"
+    func testSeriesEpisodeUsesVODRules() {
+        let candidates = VLCPlayerEngine.playbackCandidates(
+            for: item("\(vodBase).mkv", kind: .series), isLive: false
         )
-    }
-
-    /// Canlı yayında da aynı kural geçerlidir: uzantı değişirken kimlik
-    /// bilgilerinin kodlaması korunur.
-    @MainActor
-    func testLiveCandidatesPreserveEncodedPath() {
-        let candidates = AVPlayerEngine.playbackCandidates(
-            for: item("http://cdn.example.com/live/u/p%2Bw/7.ts"), isLive: true
-        )
-        XCTAssertEqual(
-            candidates.map(\.absoluteString),
-            [
-                "http://cdn.example.com/live/u/p%2Bw/7.m3u8",
-                "http://cdn.example.com/live/u/p%2Bw/7.ts"
-            ]
-        )
-    }
-
-    /// Üst dizinlerdeki nokta uzantı sanılmamalı: nokta yalnızca son parçanın
-    /// içinde aranır. Aksi hâlde `/v1.2/movie/9` gibi bir adreste `9` yerine
-    /// yanlış yerden kesilir.
-    @MainActor
-    func testExtensionIsSearchedOnlyInLastPathSegment() {
-        let candidates = AVPlayerEngine.playbackCandidates(
-            for: item("http://cdn.example.com/v1.2/movie/u/p/9.mkv"), isLive: false
-        )
-        XCTAssertEqual(
-            candidates.map(\.absoluteString),
-            [
-                "http://cdn.example.com/v1.2/movie/u/p/9.mkv",
-                "http://cdn.example.com/v1.2/movie/u/p/9.mp4",
-                "http://cdn.example.com/v1.2/movie/u/p/9.m3u8"
-            ],
-            "üst dizindeki nokta adresi bozmamalı"
-        )
-    }
-
-    /// Uzantısız adres için uydurma adres üretilmemeli.
-    @MainActor
-    func testCandidatesFallBackToPrimaryWhenExtensionIsMissing() {
-        let candidates = AVPlayerEngine.playbackCandidates(
-            for: item("\(base)"), isLive: true
-        )
-        XCTAssertEqual(candidates.map(\.absoluteString), [base])
-    }
-
-    /// Sorgu dizesi (jeton, oturum kimliği) korunmalı; düşerse sağlayıcı
-    /// isteği reddeder.
-    @MainActor
-    func testCandidatesPreserveQueryString() {
-        let candidates = AVPlayerEngine.playbackCandidates(
-            for: item("\(base).m3u8?token=abc"), isLive: true
-        )
-        XCTAssertEqual(
-            candidates.map(\.absoluteString),
-            ["\(base).m3u8?token=abc", "\(base).ts?token=abc"]
-        )
-    }
-
-    // MARK: - Xtream uzantı normalleştirmesi
-
-    /// `ts` bilinçli olarak `m3u8`'e çevrilir; `AVPlayer` ham TS'i çözemez.
-    func testTransportStreamHintNormalizesToHLS() {
-        XCTAssertEqual(XtreamClient.normalizeExtension("ts"), "m3u8")
-        XCTAssertEqual(XtreamClient.normalizeExtension("mpegts"), "m3u8")
-        XCTAssertEqual(XtreamClient.normalizeExtension("m3u8"), "m3u8")
-        XCTAssertEqual(XtreamClient.normalizeExtension("HLS"), "m3u8")
-    }
-
-    /// Oynatılabilir VOD uzantıları olduğu gibi kalmalı ve **HLS'e
-    /// çevrilmemeli**. Bu kural bir kez bozulmuştu: normalleştirme tüm
-    /// adresleri HLS'e zorluyordu, böylece film/dizi adresleri sağlayıcının
-    /// sunmadığı bir yola dönüşüyor ve oynatma hiç başlamıyordu.
-    func testVideoContainersArePreserved() {
-        for ext in ["mp4", "mkv", "avi", "mov", "webm", "m2ts"] {
-            XCTAssertEqual(XtreamClient.normalizeExtension(ext), ext, "\(ext) korunmalı")
-        }
-    }
-
-    /// Uzantı bildirilmezse HLS varsayılır (güvenli taraf).
-    func testMissingHintDefaultsToHLS() {
-        XCTAssertEqual(XtreamClient.normalizeExtension(nil), "m3u8")
-        XCTAssertEqual(XtreamClient.normalizeExtension(""), "m3u8")
-    }
-
-    /// Baştaki nokta temizlenir; `".mp4"` adres içinde `..mp4` üretmemeli.
-    func testLeadingDotIsStripped() {
-        XCTAssertEqual(XtreamClient.normalizeExtension(".mp4"), "mp4")
-    }
-
-    // MARK: - Yol parçası kodlaması
-
-    /// Kimlik bilgileri akış adresinde **yolun içinde** taşınır ve
-    /// kodlanmalıdır. `URLComponents.path` ayarlayıcısı alt sınırlayıcıları
-    /// (`@`, `+`, `:`, `,`, `;`, `=`, `&`, `$`) kodlamaz; şifresinde bunlardan
-    /// biri olan kullanıcıda yol sessizce bozulur. Ortaya çıkan tablo tam
-    /// olarak şuydu: liste gelir, poster gelir, video hiç açılmaz.
-    func testPathSegmentsEncodeSubDelimiters() {
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("a@b"), "a%40b")
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("a+b"), "a%2Bb")
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("a:b"), "a%3Ab")
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("a&b=c"), "a%26b%3Dc")
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("a;b,c"), "a%3Bb%2Cc")
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("a$b"), "a%24b")
-    }
-
-    /// Eğik çizgi kodlanmazsa yol ikiye bölünür ve adres bambaşka bir kaynağı
-    /// işaret eder. Sessiz veri bozulmasının en tehlikeli biçimi budur.
-    func testPathSegmentsEncodeSlashSoPathIsNotSplit() {
-        XCTAssertFalse(XtreamClient.percentEncodedPathSegment("a/b").contains("/"))
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("a/b"), "a%2Fb")
-    }
-
-    /// Boşluk ve ASCII dışı (Türkçe) karakterler de kodlanmalı; aksi hâlde
-    /// adres hiç kurulamaz.
-    func testPathSegmentsEncodeSpacesAndNonASCII() {
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("a b"), "a%20b")
-        let encoded = XtreamClient.percentEncodedPathSegment("şifre")
-        XCTAssertFalse(encoded.contains("ş"), encoded)
-        XCTAssertTrue(encoded.hasPrefix("%"), encoded)
-    }
-
-    /// Kodlama gerektirmeyen karakterler olduğu gibi kalır; aksi hâlde her
-    /// adres okunamaz hâle gelirdi.
-    func testPathSegmentsLeaveUnreservedCharactersAlone() {
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("user-1_A.b~c"), "user-1_A.b~c")
-        XCTAssertEqual(XtreamClient.percentEncodedPathSegment("12345"), "12345")
-    }
-
-    /// Kodlanan parça her zaman geçerli kodlanmış metin olmalı: `%` dışında
-    /// ham kalan karakter bulunmamalı ve tek başına `%` ile bitmemeli.
-    ///
-    /// Neden bu kadar önemli: `URLComponents.percentEncodedPath` ayarlayıcısı
-    /// geçersiz kodlama verildiğinde `fatalError` ile çöker (Apple belgesi).
-    /// Yani bozuk bir kodlama, oynatma hatası değil **uygulama çökmesi** demek.
-    func testEncodedSegmentsAreAlwaysValidPercentEncoding() {
-        for sample in ["mustafa", "p@ss+w:rd", "a/b", "şifre", "a b", "%", "%%", "a%b"] {
-            let encoded = XtreamClient.percentEncodedPathSegment(sample)
-            var index = encoded.startIndex
-            while index < encoded.endIndex {
-                if encoded[index] == "%" {
-                    let next = encoded.index(after: index)
-                    XCTAssertTrue(
-                        next < encoded.endIndex,
-                        "'%' tek başına kalmamalı: \(encoded)"
-                    )
-                }
-                index = encoded.index(after: index)
-            }
-            XCTAssertEqual(
-                encoded.removingPercentEncoding?.isEmpty, false,
-                "kodlanan parça çözülebilmeli: \(encoded)"
-            )
-        }
-    }
-
-    // MARK: - Sunucu yolu öneki
-
-    /// Sağlayıcısını bir alt yol altında sunan kullanıcıda (ters vekil
-    /// arkasındaki panellerde yaygın) önek **korunmalı**. Önceki kod
-    /// `path = "/player_api.php"` diyerek öneki sessizce atıyordu; istekler
-    /// yanlış adrese gidiyor ve kullanıcı boş liste ya da "şifre yanlış"
-    /// görüyordu.
-    func testPathPrefixIsPreserved() {
-        XCTAssertEqual(XtreamClient.percentEncodedPathPrefix("/iptv"), "/iptv")
-        XCTAssertEqual(
-            XtreamClient.percentEncodedPathPrefix("/a/b"),
-            "/a/b",
-            "çok katmanlı önek korunmalı"
-        )
-    }
-
-    /// Önek yoksa (adresin kökü, olağan durum) hiçbir şey eklenmez;
-    /// davranış değişmemelidir.
-    func testEmptyPathPrefixProducesNothing() {
-        XCTAssertEqual(XtreamClient.percentEncodedPathPrefix(""), "")
-        XCTAssertEqual(XtreamClient.percentEncodedPathPrefix("/"), "")
-    }
-
-    /// Önekteki boşluk ve ASCII dışı karakterler kodlanır; `/` ayırıcı kalır.
-    /// Kodlama yapılmazsa adres kurulamaz, çift kodlama yapılırsa `%` bozulur.
-    func testPathPrefixEncodesSegmentsButKeepsSlashes() {
-        XCTAssertEqual(XtreamClient.percentEncodedPathPrefix("/my iptv"), "/my%20iptv")
-        let encoded = XtreamClient.percentEncodedPathPrefix("/a/b c")
-        XCTAssertEqual(encoded, "/a/b%20c")
-        XCTAssertEqual(encoded.filter { $0 == "/" }.count, 2, encoded)
-    }
-
-    /// Kodlanan parça adrese geri konduğunda **aynı** metne çözülmeli.
-    /// Gidiş-dönüş bozulursa kimlik sunucuda eşleşmez ve 401 alınır.
-    func testEncodedSegmentRoundTripsThroughURL() {
-        let password = "p@ss+w:rd"
-        var components = URLComponents()
-        components.scheme = "http"
-        components.host = "example.com"
-        components.percentEncodedPath = "/movie/user/"
-            + XtreamClient.percentEncodedPathSegment(password)
-            + "/12.mp4"
-        let url = try? XCTUnwrap(components.url)
-        XCTAssertEqual(url?.path, "/movie/user/\(password)/12.mp4")
-        XCTAssertEqual(url?.lastPathComponent, "12.mp4")
+        XCTAssertEqual(candidates.map(\.pathExtension), ["mkv", "mp4"])
     }
 }

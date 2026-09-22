@@ -1,102 +1,54 @@
-import AVFoundation
-import AVKit
+import Foundation
+import UIKit
+import VLCKit
 
-/// Küçük pencere (PiP) denetimi.
+/// Küçük pencere (PiP) denetimi — **VLCKit geçişinde devre dışı**.
 ///
-/// `AVPictureInPictureController` yalnızca somut bir `AVPlayerLayer` üzerinden
-/// kurulabildiği için görüntü katmanı hazır olduğunda buraya bağlanır
-/// (bkz. `VideoSurfaceView`). Oynatıcı katmanı her yeniden oluşturulduğunda
-/// `attach(to:)` yeniden çağrılır ve denetleyici tazelenir; böylece kapanan bir
-/// PiP oturumundan sonra ikinci kez açma denemesi sessizce başarısız olmaz.
+/// **Neden boş:** `AVPlayer` döneminde PiP, `AVPictureInPictureController`'ın
+/// somut bir `AVPlayerLayer` üzerine kurulmasıyla elde ediliyordu. libvlc
+/// görüntüyü `AVPlayerLayer`'a değil, kendi çizdiği bir alt katmana yazar;
+/// dolayısıyla o yol artık kullanılamaz.
+///
+/// VLCKit 4.0 kendi PiP API'sini sunar (`Headers/Public/Video/VLCDrawable.h`):
+///
+/// - `VLCPictureInPictureDrawable` — `mediaController` ve
+///   `pictureInPictureReady` üyeleriyle oynatıcıyı PiP'e tanıtır.
+/// - `VLCPictureInPictureMediaControlling` — PiP penceresinin oynatma
+///   çağrıları: `play`, `pause`, `seekBy:completion:`, `mediaLength`,
+///   `mediaTime`, `isMediaSeekable`, `isMediaPlaying`.
+/// - `VLCPictureInPictureWindowControlling` — `stateChangeEventHandler`
+///   bloğu ile `startPictureInPicture`/`stopPictureInPicture` ve
+///   `invalidatePlaybackState`.
+///
+/// **Neden şimdi yazılmadı:** bu protokollerin Swift'e köprülenmiş imzaları
+/// (özellikle `dispatch_block_t` alan `seekBy:completion:` ve blok döndüren
+/// `pictureInPictureReady`) derleyici olmadan doğrulanamaz. Yanlış bir imza
+/// tahmini, çalışma anında tuzağa düşen bir sözleşme ihlali üretirdi ve
+/// oynatmanın kendisi çalışırken bu riski almak doğru değildir.
+///
+/// **Durum:** `isSupported` her zaman yanlış döner, dolayısıyla arayüz PiP
+/// düğmesini hiç çizmez. Kullanıcı için kayıp, oynatıcının çalışmamasından çok
+/// daha küçüktür. PiP yeniden eklendiğinde bu sınıf tek yer olarak kalır ve
+/// `PlayerView` içindeki `pip.toggle()` çağrısı olduğu gibi çalışır.
 @MainActor
 final class PictureInPictureController: ObservableObject {
 
-    /// Cihaz PiP'i destekliyor mu? (Simülatörde desteklenmez.)
-    @Published private(set) var isSupported = false
+    /// Cihaz PiP'i destekliyor mu?
+    ///
+    /// `AVPlayer` döneminde bu değer `AVPictureInPictureController.isPictureInPictureSupported()`
+    /// ile belirleniyordu. Artık PiP uygulanmadığı için sabit olarak yanlış
+    /// bırakılır; bu tek nokta, arayüzün düğmeyi çizip çizmemesini belirler.
+    private(set) var isSupported = false
 
     /// PiP penceresi şu anda açık mı?
-    @Published private(set) var isActive = false
-
-    private var controller: AVPictureInPictureController?
-    private let proxy = Delegate()
+    private(set) var isActive = false
 
     /// Kullanıcı PiP penceresindeki "geri dön" düğmesine bastığında çağrılır.
     var onRestore: (() -> Void)?
 
-    init() {
-        proxy.onStart = { [weak self] in self?.isActive = true }
-        proxy.onStop = { [weak self] in self?.isActive = false }
-        proxy.onRestore = { [weak self] in self?.onRestore?() }
-    }
+    /// PiP'i açar/kapatır. Uygulanmadığı için hiçbir şey yapmaz.
+    func toggle() {}
 
-    /// Görüntü katmanına bağlanır. Desteklenmeyen cihazlarda sessizce yalnızca
-    /// `isSupported` yanlış kalır; arayüz PiP düğmesini çizmez.
-    func attach(to layer: AVPlayerLayer) {
-        guard AVPictureInPictureController.isPictureInPictureSupported() else {
-            isSupported = false
-            return
-        }
-
-        // Kurucu `failable`: katman hazır değilse `nil` döner. Bu durumda
-        // destek bayrağı yanlış bırakılır ve düğme çizilmez.
-        guard let controller = AVPictureInPictureController(playerLayer: layer) else {
-            isSupported = false
-            return
-        }
-        controller.delegate = proxy
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        self.controller = controller
-        isSupported = true
-    }
-
-    func toggle() {
-        guard let controller else { return }
-        if controller.isPictureInPictureActive {
-            controller.stopPictureInPicture()
-        } else {
-            controller.startPictureInPicture()
-        }
-    }
-
-    func stop() {
-        guard let controller, controller.isPictureInPictureActive else { return }
-        controller.stopPictureInPicture()
-    }
-
-    // MARK: - Delege köprüsü
-
-    /// `AVPictureInPictureControllerDelegate` yöntemleri `@MainActor` değildir;
-    /// bu köprü geri çağrıları ana aktöre taşır ve döngüsel referansı önlemek
-    /// için denetleyiciyi zayıf tutar.
-    private final class Delegate: NSObject, AVPictureInPictureControllerDelegate {
-
-        var onStart: (@MainActor () -> Void)?
-        var onStop: (@MainActor () -> Void)?
-        var onRestore: (@MainActor () -> Void)?
-
-        func pictureInPictureControllerDidStartPictureInPicture(
-            _ controller: AVPictureInPictureController
-        ) {
-            let handler = onStart
-            Task { @MainActor in handler?() }
-        }
-
-        func pictureInPictureControllerDidStopPictureInPicture(
-            _ controller: AVPictureInPictureController
-        ) {
-            let handler = onStop
-            Task { @MainActor in handler?() }
-        }
-
-        func pictureInPictureController(
-            _ controller: AVPictureInPictureController,
-            restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
-        ) {
-            let handler = onRestore
-            Task { @MainActor in
-                handler?()
-                completionHandler(true)
-            }
-        }
-    }
+    /// PiP penceresini kapatır. Uygulanmadığı için hiçbir şey yapmaz.
+    func stop() {}
 }

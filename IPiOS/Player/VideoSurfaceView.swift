@@ -1,58 +1,74 @@
-import AVFoundation
 import SwiftUI
+import UIKit
+import VLCKit
 
-/// `AVPlayer` görüntüsünü SwiftUI içinde gösteren katman.
+/// libvlc görüntüsünü SwiftUI içinde gösteren katman.
 ///
-/// `AVPlayerViewController` yerine `AVPlayerLayer` kullanılır: kendi kontrol
-/// arayüzümüzü çizdiğimiz için sistem kontrollerine ihtiyaç yoktur ve bu yol
-/// daha az davranış sürprizi üretir.
+/// `AVPlayer` döneminde bu görünüm `AVPlayerLayer`'ı barındırıyordu ve katman
+/// tipi `layerClass` ile sabitlenmek zorundaydı. libvlc'de böyle bir zorunluluk
+/// yok: `VLCMediaPlayer.drawable` **herhangi bir `UIView`** kabul eder ve kendi
+/// görüntü alt katmanını o görünüme ekler. Bu yüzden sade bir `UIView` yeterli
+/// ve en düşük riskli seçenektir — `VLCDrawable` protokolünün istediği iki üye
+/// (`addSubview:` ve `bounds`) `UIView`'da zaten vardır.
+///
+/// Ölçekleme burada **değil** oynatıcıda ayarlanır (`videoFitMode`), çünkü
+/// libvlc görüntüyü kendi çizdiği alt katmana yerleştirir ve SwiftUI tarafından
+/// yapılan hiçbir katman ayarı onu etkilemez.
 struct VideoSurfaceView: UIViewRepresentable {
 
-    let player: AVPlayer
+    let player: VLCMediaPlayer
 
-    /// Görüntünün en-boy oranına göre ölçeklenip ölçeklenmeyeceği.
-    /// Canlı yayınlarda tam ekran doldurma, VOD'da oranı koruma tercih edilir.
-    var videoGravity: AVLayerVideoGravity = .resizeAspect
-
-    /// Katman oluşturulduğunda (ve gerektiğinde yeniden) bildirilir.
-    ///
-    /// Neden gerekli: küçük pencere (PiP) denetimi yalnızca somut bir
-    /// `AVPlayerLayer` üzerine kurulabilir; SwiftUI görünümü dışarıya katman
-    /// vermez, bu yüzden katman hazır olduğunda buradan iletilir. Aynı zamanda
-    /// katman sahipliği oynatıcıdan alınmış olur.
-    var onLayerReady: ((AVPlayerLayer) -> Void)?
-
-    func makeUIView(context: Context) -> PlayerLayerView {
-        let view = PlayerLayerView()
+    func makeUIView(context: Context) -> PlayerSurfaceView {
+        let view = PlayerSurfaceView()
         view.backgroundColor = .black
-        view.playerLayer.player = player
-        view.playerLayer.videoGravity = videoGravity
-        onLayerReady?(view.playerLayer)
+        view.attach(to: player)
         return view
     }
 
-    func updateUIView(_ uiView: PlayerLayerView, context: Context) {
-        if uiView.playerLayer.player !== player {
-            uiView.playerLayer.player = player
-        }
-        uiView.playerLayer.videoGravity = videoGravity
+    func updateUIView(_ uiView: PlayerSurfaceView, context: Context) {
+        uiView.attach(to: player)
     }
 }
 
-/// `AVPlayerLayer`'ı barındıran ve katman sınıfını `AVPlayerLayer` olarak
-/// bildiren görünüm. Katman tipi `layerClass` ile sabitlenmezse katman
-/// boyutlandırma sırasında yanlış ölçeklenir.
-final class PlayerLayerView: UIView {
+/// Oynatıcının görüntüsünü barındıran ve `drawable` bağını **iki yönlü**
+/// yöneten görünüm.
+///
+/// İki yönlü yönetim neden gerekli: `VLCMediaPlayer.drawable` kuvvetli
+/// (strong) tutulur. Yalnızca bağlamak yetmez — görünüm ekrandan çıktığında
+/// bırakılmazsa kapandığı sanılan oynatıcı ekranının görünümü bellekte asılı
+/// kalır ve bir sonraki açılışta iki yüzey birden oynatıcıya bağlı kalabilir.
+final class PlayerSurfaceView: UIView {
 
-    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    /// Zayıf tutulur: oynatıcı zaten motor tarafından güçlü tutulur ve
+    /// oynatıcı bu görünümü güçlü tuttuğu için burada güçlü bir referans
+    /// döngü oluştururdu.
+    private weak var player: VLCMediaPlayer?
 
-    var playerLayer: AVPlayerLayer {
-        // `layerClass` gereği bu dönüşüm her zaman geçerlidir.
-        layer as! AVPlayerLayer
+    /// Oynatıcıya bağlanır (gerekmiyorsa hiçbir şey yapmaz).
+    func attach(to player: VLCMediaPlayer) {
+        self.player = player
+        guard player.drawable as? UIView !== self else { return }
+        player.drawable = self
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        playerLayer.frame = bounds
+    /// Görünüm pencere hiyerarşisine girdiğinde/çıktığında bağı günceller.
+    ///
+    /// Bu kanca `dismantleUIView` yerine tercih edildi: `dismantleUIView`
+    /// statik olduğu için oynatıcı örneğine erişemez ve bağ yalnızca SwiftUI'ın
+    /// görünümü tamamen sökmesiyle koparılırdı. `willMove(toWindow:)` ise
+    /// görünüm ekrandan çıktığı anda çalışır ve **kendini onarır**: pencere
+    /// yeniden atandığında bağ geri kurulur, böylece geçici bir sökülme
+    /// oynatmayı kalıcı olarak karartmaz.
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        guard let player else { return }
+
+        if newWindow == nil {
+            if player.drawable as? UIView === self {
+                player.drawable = nil
+            }
+        } else if player.drawable as? UIView !== self {
+            player.drawable = self
+        }
     }
 }

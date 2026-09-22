@@ -34,7 +34,8 @@ import urllib.parse
 import urllib.request
 
 
-# IPiOS'un gonderdigi User-Agent. `AVPlayerEngine.startItem` ile ayni olmali.
+# IPiOS'un gonderdigi User-Agent. `VLCPlayerEngine.startItem(with:)` ve
+# `PlaybackDiagnostics.userAgent` ile ayni olmali.
 IPIOS_UA = "IPiOS/1.0 (iOS)"
 
 # Karsilastirma icin yaygin bir oynatici adi. Bazi saglayicilar bilmedikleri
@@ -276,13 +277,13 @@ def main():
     for e, c in sorted(exts.items(), key=lambda kv: -kv[1]):
         out(f"  {e:12} {c}")
     if empty:
-        out(f"  (bos/yok)    {empty}   <- eski surumde bu adresler .m3u8 olurdu")
-        notes.append(f"{empty} filmde container_extension BOS (IPiOS artik mp4'e ceviriyor)")
-    unplayable = [e for e in exts if e in ("mkv", "avi", "webm", "flv", "wmv")]
-    if unplayable:
-        out(f"  AVPlayer'in cozemedigi konteynerler: {', '.join(unplayable)}")
-        notes.append("bazi filmler cozulemeyen konteynerde (mkv/avi/...) "
-                     "-> IPiOS mp4 yedegine duser")
+        out(f"  (bos/yok)    {empty}")
+        notes.append(f"{empty} filmde container_extension BOS "
+                     f"-> IPiOS adresi oldugu gibi dener")
+    # Konteyner uzantilari hakkinda hüküm VERILMEZ. Bu bolum bir zamanlar
+    # "AVPlayer'in cozemedigi konteynerler" diye bir liste basiyordu; o
+    # hüküm artik gecersiz (bkz. [5] ve docs/MIMARI.md Bolum 11.1) ve
+    # burada birakilsaydi kullaniciyi yanlis yone gonderirdi.
 
     # --- 5. GERCEK ADRES DENEMESI -----------------------------------------
     out("\n[5] GERCEK ADRES DENEMESI (asil kanit)")
@@ -292,8 +293,6 @@ def main():
     out("  yalnizca GERCEK VIDEO VERISI donduren adres 'calisiyor' sayilir.")
     base = args.url.rstrip("/")
     cand_exts = ["m3u8", "mp4", "mkv", "avi", "ts"]
-    # AVPlayer'in cozebildigi tasiyicilar. MKV/AVI/WebM cozulemez.
-    AVPLAYER_OK = {"hls", "mp4", "ts"}
     for it in vod_items[: args.sample]:
         sid = it.get("stream_id") or it.get("id")
         if sid is None:
@@ -302,7 +301,6 @@ def main():
         declared = it.get("container_extension")
         out(f"\n  --- {name}  (id={sid}, bildirilen={declared}) ---")
         working = []       # gercek veri donen uzantilar
-        playable = []      # gercek veri donen VE AVPlayer'in cozdugu uzantilar
         for ext in cand_exts:
             u = f"{base}/movie/{args.user}/{args.password}/{sid}.{ext}"
             st, ctype, size, sinif, sig = probe(u, ua=IPIOS_UA)
@@ -315,29 +313,17 @@ def main():
                     f"<-- 'calisiyor' SAYILMAZ")
                 continue
             working.append(ext)
-            if sinif in AVPLAYER_OK:
-                playable.append(ext)
-                out(f"    OK {ext:6} -> 200  [{sinif}] {size} bayt  AVPlayer cozer")
-            else:
-                out(f"    !! {ext:6} -> 200  [{sinif}] {size} bayt  "
-                    f"AVPlayer BU KONTEYNERI COZEMEZ")
-        if playable:
-            out(f"    => AVPlayer'in OYNATABILECEGI UZANTILAR: {', '.join(playable)}")
-            if declared and str(declared).lower() not in [w.lower() for w in playable]:
-                notes.append(f"film id={sid}: sunucu '{declared}' bildiriyor "
-                             f"ama AVPlayer icin calisan '{playable[0]}'")
-        elif working:
-            # Asil tuzak burada: bir uzanti veri donduruyor ama AVPlayer
-            # o konteyneri cozemez (ornegin yalnizca MKV veriyor).
-            out(f"    => YALNIZCA SU KONTEYNERLER VERI DONUYOR: "
-                f"{', '.join(working)} — AVPlayer bunlari COZEMEZ.")
-            out("       Eksik olan sey yedek adres degil, DEMUXER'dir;")
-            out("       uzantiyi degistirmek de kurtarmaz.")
-            problems.append(
-                f"film id={sid}: saglayici yalnizca "
-                f"{', '.join(working)} sunuyor ve AVPlayer bu konteyneri "
-                f"cozemez -> IPiOS'ta oynatmak icin FFmpeg tabanli bir "
-                f"oynatici cekirdegi gerekir (VLCKit)")
+            out(f"    OK {ext:6} -> 200  [{sinif}] {size} bayt  gercek veri")
+        if working:
+            # libvlc (VLCKit) Matroska, AVI, WebM, ham MPEG-TS ve MP4'un
+            # tamamini cozer; bu yuzden burada "su konteyner cozulemez"
+            # diye bir hüküm YOKTUR. Tek gercek engel, hicbir uzantinin
+            # veri dondurmuyor olmasidir.
+            out(f"    => VERI DONEN UZANTILAR: {', '.join(working)} (libvlc hepsini cozer)")
+            if declared and str(declared).lower() not in [w.lower() for w in working]:
+                notes.append(f"film id={sid}: sunucu '{declared}' bildiriyor ama "
+                             f"veri '{working[0]}' adresinden geliyor "
+                             f"-> IPiOS her ikisini de dener")
         else:
             out("    => Hicbir uzanti gercek video dondurmedi. "
                 "Bu icerik bu hesapla oynatilamiyor.")
@@ -368,27 +354,23 @@ def main():
         problems.append("Sunucu IPiOS'un User-Agent'ini engelliyor "
                         "(baska oynatici adiyla ayni adres 200 donuyor)")
 
-    # --- 5c. Kodek denetimi ------------------------------------------------
-    out("\n[5c] KODEK DENETIMI (AVPlayer'in cozemedigi kodekler)")
+    # --- 5c. Kodek raporu --------------------------------------------------
+    out("\n[5c] KODEK RAPORU (bilgi amacli, hüküm degil)")
     out("  Dosyanin ilk baytlari indirilip icindeki kodek imzalari aranir.")
-    out("  AVPlayer bazi ses kodeklerini (AC3/EAC3/DTS) COZEMEZ; baska bir")
-    out("  oynatici (VLC gibi, FFmpeg tabanli) bunlari sorunsuz oynatir.")
-    out("  'Baska uygulamada calisiyor ama bunda acilmiyor' tablosunun en")
-    out("  yaygin nedeni budur.")
+    out("  **Buradaki kodekler oynatmayi ENGELLEMEZ.** Oynatma cekirdegi")
+    out("  libvlc oldugu icin AC3/E-AC3/DTS/TrueHD/Opus ve AV1/VP9 yazilim")
+    out("  cozuculeriyle oynatilir. Liste yalnizca saglayiciya soru sormak")
+    out("  gerekirse hangi kodekten soz edildigini bilmek icindir.")
 
     VIDEO_CODECS = {
-        "avc1": "H.264 (destekli)", "avc3": "H.264 (destekli)",
-        "hvc1": "HEVC (destekli)", "hev1": "HEVC (destekli)",
-        "vp09": "VP9 (AVPlayer COZEMEZ)", "av01": "AV1 (AVPlayer COZEMEZ)",
+        "avc1": "H.264", "avc3": "H.264", "hvc1": "HEVC", "hev1": "HEVC",
+        "vp09": "VP9", "av01": "AV1",
     }
     AUDIO_CODECS = {
-        "mp4a": "AAC (destekli)", "ac-3": "AC3 (AVPlayer COZEMEZ)",
-        "ec-3": "EAC3 (AVPlayer COZEMEZ)", "dtsc": "DTS (AVPlayer COZEMEZ)",
-        "dtsh": "DTS-HD (AVPlayer COZEMEZ)", "dtsl": "DTS (AVPlayer COZEMEZ)",
-        "opus": "Opus (MP4 icinde AVPlayer COZEMEZ)",
-        "twos": "PCM (destekli)", "sowt": "PCM (destekli)",
+        "mp4a": "AAC", "ac-3": "AC3", "ec-3": "E-AC3", "dtsc": "DTS",
+        "dtsh": "DTS-HD", "dtsl": "DTS", "dtse": "DTS Express",
+        "mlpa": "TrueHD", "opus": "Opus", "twos": "PCM", "sowt": "PCM",
     }
-    BAD = ("COZEMEZ",)
 
     def sniff(url, label):
         ctx2 = ssl.create_default_context()
@@ -419,9 +401,8 @@ def main():
         if magic[4:8] == b"ftyp":
             brand = magic[8:12].decode("ascii", "replace")
             out(f"     konteyner      : MP4 (marka: {brand})")
-        elif magic[0:1] == b"\x1a\x45\xdf\xa3"[:1] or head[:4] == b"\x1a\x45\xdf\xa3":
-            out("     konteyner      : Matroska/WebM (AVPlayer COZEMEZ)")
-            problems.append(f"{label}: dosya MKV/WebM — AVPlayer bu konteyneri cozemez")
+        elif head[:4] == b"\x1a\x45\xdf\xa3":
+            out("     konteyner      : Matroska/WebM (libvlc cozer)")
         elif magic[:3] == b"ID3" or magic[0] == 0xFF:
             out("     konteyner      : MPEG audio")
         elif b"ftyp" in head[:200]:
@@ -448,16 +429,16 @@ def main():
         else:
             out("     ses kodegi     : bulunamadi (moov sonda olabilir)")
 
-        bad_v = [k for k in found_v if k in ("vp09", "av01")]
-        bad_a = [k for k in found_a if AUDIO_CODECS.get(k, "").endswith("COZEMEZ)")]
-        if bad_v:
-            problems.append(f"{label}: goruntu kodegi {', '.join(bad_v)} — "
-                            f"AVPlayer cozemez, bu yuzden 'Oynatma baslatilamadi' cikar")
-        if bad_a:
-            problems.append(f"{label}: ses kodegi {', '.join(bad_a)} — "
-                            f"AVPlayer cozemez (goruntulu dosyalarda ses sarttir)")
-        if not bad_v and not bad_a and (found_v or found_a):
-            out("     => AVPlayer bu dosyayi cozebilmeli. Sorun kodekte degil.")
+        # Kodekler hakkinda hüküm VERILMEZ. libvlc bu kodeklerin tamamini
+        # yazilim cozuculeriyle oynatir; "su kodek varsa oynatilamaz"
+        # demek, AVPlayer doneminden kalan ve artik yanlis olan bir
+        # varsayimdir (bkz. VLCDiagnostics, 5. adim).
+        if found_v or found_a:
+            out("     => Kodekler bilgi amaclidir; libvlc bunlarin tamamini")
+            out("        cozer. Oynatmayi engelleyen bir kodek yoktur.")
+        else:
+            out("     => Kodek imzasi okunamadi. Bu bir sorun degildir:")
+            out("        libvlc icerige kendisi bakar, uzantiya guvenmez.")
 
     # Yalnizca 200 donen ilk adres uzerinde denenir.
     sniffed = False

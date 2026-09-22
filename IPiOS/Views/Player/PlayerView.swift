@@ -1,4 +1,3 @@
-import AVFoundation
 import SwiftUI
 
 /// Tam ekran oynatıcı.
@@ -41,9 +40,6 @@ private struct PlayerContent: View {
 
     @StateObject private var pip = PictureInPictureController()
 
-    /// Oynatıcı katmanı; küçük pencere (PiP) denetimi bunun üzerine kurulur.
-    @State private var playerLayer: AVPlayerLayer?
-
     /// Kullanıcı çubuğu sürüklerken geçici olarak gösterilen konum.
     /// `nil` ise motorun anlık konumu gösterilir.
     @State private var scrubTarget: Double?
@@ -65,25 +61,19 @@ private struct PlayerContent: View {
 
             // Görüntü **her zaman** oranı korunarak sığdırılır.
             //
-            // Canlı yayında daha önce `.resizeAspectFill` kullanılıyordu: bu
-            // kip ekranı doldurur ama taşan kenarları **kırpar**, yani yayının
-            // bir kısmı hiç görünmez (kanal logoları, alt bantlar, skor
-            // tabelaları kesilir). Kullanıcı bunu "ekran uzamış, görüntü
-            // sığmıyor" olarak bildirdi. Canlı ile VOD arasında davranış farkı
-            // olması da beklenmedikti; tek kip kullanılır.
-            VideoSurfaceView(
-                player: viewModel.engine.player,
-                videoGravity: .resizeAspect,
-                onLayerReady: { layer in
-                    // Katman `makeUIView` sırasında bildirilir; SwiftUI güncelleme
-                    // döngüsünün ortasında durum yazmamak için bir sonraki tur beklenir.
-                    Task { @MainActor in
-                        playerLayer = layer
-                        pip.attach(to: layer)
-                    }
-                }
-            )
-            .ignoresSafeArea()
+            // Canlı yayında daha önce ekranı dolduran kip kullanılıyordu: o kip
+            // ekranı doldurur ama taşan kenarları **kırpar**, yani yayının bir
+            // kısmı hiç görünmez (kanal logoları, alt bantlar, skor tabelaları
+            // kesilir). Kullanıcı bunu "ekran uzamış, görüntü sığmıyor" olarak
+            // bildirdi. Canlı ile VOD arasında davranış farkı olması da
+            // beklenmedikti; tek kip kullanılır.
+            //
+            // Ölçekleme artık burada verilmez: libvlc görüntüyü kendi çizdiği
+            // alt katmana yerleştirir ve `videoFitMode` ile ayarlanır
+            // (bkz. `VLCPlayerEngine.configurePlayer`). SwiftUI'dan yapılan bir
+            // katman ayarı onu etkilemezdi.
+            VideoSurfaceView(player: viewModel.engine.player)
+                .ignoresSafeArea()
 
             if viewModel.engine.isBuffering {
                 bufferingIndicator
@@ -138,16 +128,6 @@ private struct PlayerContent: View {
             }
         } message: {
             Text(errorMessage)
-        }
-        .alert(
-            L.t("player.error.title"),
-            isPresented: $viewModel.showsTSWarning
-        ) {
-            Button(L.t("common.close"), role: .cancel) {
-                presenter.dismiss()
-            }
-        } message: {
-            Text(L.t("player.error.tsUnsupported"))
         }
     }
 
@@ -445,6 +425,7 @@ private struct PlayerContent: View {
         if case .failed(let message) = viewModel.engine.state { return message }
         return L.t("player.error.unknown")
     }
+
 
     /// Kontroller ilk kez gizlendikten sonra "dokunun" ipucu bir kez gösterilir.
     ///

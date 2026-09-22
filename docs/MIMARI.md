@@ -3,7 +3,7 @@
 **Sürüm:** 1.0
 **Tarih:** 21 Eylül 2026
 **Hedef platform:** iOS 16.0+ (iPhone + iPad)
-**Teknoloji:** Swift 5.9+, SwiftUI, AVKit, async/await — üçüncü taraf bağımlılık yok
+**Teknoloji:** Swift 5.9+, SwiftUI, async/await + oynatma çekirdeği olarak VLCKit (libvlc)
 
 > Kurulum ve çalıştırma adımları için [`README.md`](../README.md) dosyasına bakın.
 
@@ -50,9 +50,11 @@ provider" değil. Tüm kaynak bilgileri cihazda kalır, hiçbir sunucuya gönder
 
 ## 3. Genel Mimari
 
-Katmanlı mimari + **MVVM** + protokol tabanlı servis soyutlaması. Üçüncü parti bağımlılık
-yok; her şey Apple'ın kendi çatılarıyla (SwiftUI, AVKit, Combine/async-await) yazılıyor.
-Bu, uzun vadede mağaza incelemesi ve güncelleme yönetimi açısından en az sürtünmeli yol.
+Katmanlı mimari + **MVVM** + protokol tabanlı servis soyutlaması. Uygulama katmanları
+SwiftUI, Foundation ve Combine ile yazılıyor; **tek üçüncü taraf bağımlılık** oynatma
+çekirdeğidir (VLCKit/libvlc). Bu sınır bilinçli: sağlayıcı VOD'u yalnızca Matroska olarak
+sunduğu için (bkz. Bölüm 11) `AVFoundation` yeterli değildir, buna karşılık veri, ağ,
+arayüz ve depolama katmanlarında bağımlılık eklemeye gerek yoktur.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -160,9 +162,11 @@ ipios/
     │       ├── FavoritesRepository.swift
     │       ├── RecentsRepository.swift
     │       └── ContentLibrary.swift  # aktif kaynağın içerik aynası
-    ├── Player/                       # AVPlayer sarmalayıcıları
-    │   ├── AVPlayerEngine.swift
-    │   ├── PlaybackDiagnostics.swift # hata sınıflandırma + akış kodek ölçümü
+    ├── Player/                       # libvlc (VLCKit) oynatma çekirdeği
+    │   ├── VLCPlayerEngine.swift     # PlaybackProviding'in libvlc uygulaması
+    │   ├── VLCLogger.swift           # libvlc günlüğünü yakalar (teşhis kaynağı)
+    │   ├── VLCDiagnostics.swift      # günlükten hata sınıflandırma + akış ölçümü
+    │   ├── PlaybackDiagnostics.swift # hata metinleri + kodek adları sözlüğü
     │   ├── AudioSessionManager.swift
     │   ├── PictureInPictureController.swift
     │   └── VideoSurfaceView.swift
@@ -307,17 +311,27 @@ channel bazında parçalara bölünüp diske yazılır, bellek şişmez.
 ### PlaybackProviding
 
 ```swift
-protocol PlaybackProviding {
-    func play(_ item: MediaItem) async throws
-    func pause()
-    func stop()
-    var stateStream: AsyncStream<PlaybackState> { get }
+@MainActor
+protocol PlaybackProviding: AnyObject {
+    var state: PlaybackState { get }
+    var currentTitle: String? { get }
+    var isLive: Bool { get }
+    var duration: Double? { get }
+    var currentTime: Double { get }
+    var didResumeFromSavedPosition: Bool { get }
+    func load(_ item: any MediaItem, startAt: Double?) async
+    func play(); func pause(); func togglePlayPause(); func stop()
+    func seek(by seconds: Double); func seek(to seconds: Double)
+    func persistPosition() async
+    func setVolume(_ value: Float)
 }
 ```
 
-Somut implementasyon `AVPlayerEngine`. Canlı HLS akışlarında `.m3u8` uzantısı gerekmez;
-Xtream'in `stream_type` alanı `m3u8` veya `ts` olabilir — ikisi de AVPlayer tarafından
-doğrudan oynatılır.
+Somut implementasyon `VLCPlayerEngine` (libvlc). Arayüz ayrı tutulması işe yaradı:
+oynatma motoru bir kez, ekranlara hiç dokunulmadan değiştirildi.
+
+Xtream'in `stream_type` alanı `m3u8` veya `ts` olabilir; **ikisi de libvlc tarafından
+doğrudan oynatılır**, dolayısıyla canlı yayında taşıyıcı seçimi bir kısıt değildir.
 
 ---
 
@@ -398,7 +412,7 @@ daha hızlı ve daha az kırılgan. Veri 200k kanalı aşarsa SQLite'a geçiş d
         │            │              └─> SeriesDetailView (sezon/bölüm)
         │            └─> MovieDetailView
         │                    │
-        └────────────────────┴──> PlayerView (AVPlayer, tam ekran)
+        └────────────────────┴──> PlayerView (libvlc, tam ekran)
 ```
 
 Her liste ekranında ortak davranış: kategori çubuğu (yatay chip'ler), arama alanı,
@@ -408,18 +422,37 @@ favori yıldızı, EPG ilerleme çubuğu (yalnızca canlı TV'de).
 
 ## 10. Oynatıcı Tasarımı
 
-`AVPlayerViewController`, SwiftUI içinde `UIViewControllerRepresentable` ile sarılır.
+Oynatma çekirdeği **libvlc**'dir (VLCKit paketi). `PlayerView` kendi kontrol arayüzünü
+çizer; sistem oynatıcısı kullanılmaz. Görüntü yüzeyi `UIViewRepresentable` ile sarılan
+sade bir `UIView`'dır ve `VLCMediaPlayer.drawable` üzerine bağlanır.
+
 Kritik noktalar:
 
-- **Canlı akış:** `.m3u8` HLS akışlarında `player.currentItem.duration` sonsuzdur;
-  ilerleme çubuğu gösterilmez, "CANLI" etiketi ve kanal adı gösterilir.
-- **VOD/Dizi:** ilerleme çubuğu, 10 sn ileri/geri, altyazı ve ses parçası seçimi.
-- **Arka plan:** `AVAudioSession` kategorisi `.playback`; ekran kilidi ve arka plan sesi
-  desteklenir. `AVPlayer` `pipController` ile Picture-in-Picture.
-- **İzleme konumu:** VOD ve dizilerde `currentTime` periyodik olarak diske yazılır;
-  "Devam et" özelliği buradan beslenir.
-- **Hata yönetimi:** akış açılmazsa kullanıcıya "Kanal şu an yayında değil" mesajı ve
-  yeniden dene butonu.
+- **Görüntü yüzeyi:** `drawable` **herhangi bir `UIView`** kabul eder; libvlc kendi görüntü
+  alt katmanını o görünüme ekler. Katman tipi sabitlenmez, `AVPlayerLayer` gerekmez.
+  Bağ **iki yönlüdür** (`willMove(toWindow:)`): `drawable` güçlü tutulduğu için bırakılmazsa
+  kapanan ekranın görünümü bellekte asılı kalır.
+- **Ölçekleme:** tek kip kullanılır (`VLCVideoFitSmaller` ≈ oranı koruyarak sığdırma).
+  Kırpan kip **bilinçli olarak kullanılmaz**: yayının kenarları (kanal logoları, alt
+  bantlar) kesilir ve kullanıcı bunu "görüntü sığmıyor" olarak bildirmişti.
+- **Canlı akış:** süre bilinmez (`VLCTime.nullTime`), ilerleme çubuğu gösterilmez;
+  "CANLI" etiketi gösterilir. Arama yapılmaz (`isSeekable` yanlış).
+- **VOD/Dizi:** ilerleme çubuğu ve 10 sn ileri/geri. Konum `player.time` üzerinden
+  okunur; `VLCTime.intValue` **milisaniye** döner, arayüz saniye ile çalışır.
+- **Ses:** `AVAudioSession` kategorisi `.playback` (arka plan sesi için); ses seviyesi
+  `VLCAudio.volume` ile ayarlanır ve bu **tamsayı bir ölçektir** — arayüzün 0...1 aralığı
+  dönüştürülmeden verilirse ses kapanır.
+- **İzleme konumu:** VOD ve dizilerde konum periyodik olarak diske yazılır; "Devam et"
+  özelliği buradan beslenir. Kaydedilmiş konum oynatma **başladıktan sonra** uygulanır:
+  libvlc arama isteğini ancak akış çözüldükten sonra işleyebilir.
+- **Teşhis:** `VLCLogger` libvlc'nin günlüğünü yakalar, `VLCDiagnostics` bu günlükten
+  nedeni **okur** (bkz. Bölüm 11). Hata metni tahminle değil kanıtla üretilir.
+- **Picture-in-Picture:** `AVPlayer` döneminde `AVPictureInPictureController` somut bir
+  `AVPlayerLayer` üzerine kuruluyordu; bu yol libvlc ile kullanılamaz. VLCKit 4.0 kendi PiP
+  API'sini sunar (`VLCPictureInPictureDrawable`, `...MediaControlling`,
+  `...WindowControlling`) ancak bu protokollerin Swift köprüsü derleyici olmadan
+  doğrulanamadığı için **şimdilik uygulanmadı**; arayüz düğmeyi çizmez
+  (bkz. `PictureInPictureController`).
 
 ---
 
@@ -436,7 +469,48 @@ Kritik noktalar:
 | Sağlayıcı API tutarsızlıkları | Orta | Xtream DTO'ları tüm alanları `optional` kabul eder, eksik alanlarda güvenli varsayılan. |
 | Kimlik bilgilerinin akış adresinde yol içinde taşınması | Yüksek | Şifre URL yolunun bir parçasıdır ve yüzde kodlanmalıdır. `URLComponents.path` ayarlayıcısı alt sınırlayıcıları (`@`, `+`, `:`, `/`) kodlamaz; bu yüzden kodlama `percentEncodedPathSegment` ile açıkça yapılır. Ayrıca `percentEncodedPath` ayarlayıcısı geçersiz kodlamada `fatalError` verir; bu yüzden kodlama asla ham parçaya geri düşmez. |
 | Sunucu adresinde yol öneki | Orta | Xtream uç noktaları adresin köküne sabitlenmez; kullanıcının verdiği yol öneki (`http://host/iptv`) korunur. Öneki atmak, sağlayıcısını alt yol altında sunan panellerde isteği yanlış adrese gönderir. |
-| Sessiz biçim/konteyner uyumsuzluğu ("başka uygulamada açılıyor, bunda açılmıyor") | Yüksek | Neden tahmin edilmez, **ölçülür**: akışın taşıdığı kodekler `AVAsset` ile okunur (`PlaybackDiagnostics`). Desteklenmeyen bir ses kodeği görüntü kodeği destekli olsa bile öğenin tamamını düşürür; kullanıcıya kodeğin adı söylenir ve sağlayıcıya iletilebilecek dilden bağımsız bir teşhis satırı eklenir. |
+| Sessiz biçim/konteyner uyumsuzluğu ("başka uygulamada açılıyor, bunda açılmıyor") | Yüksek | **Ölçülerek çözüldü.** Neden ölçüldü ve tek bir kök neden bulundu: sağlayıcı VOD'u yalnızca **Matroska (`.mkv`)** olarak sunuyor; `AVFoundation`'ın Matroska demuxer'ı yoktur. Uzantı değiştirmek kurtarmaz — sunucu `.mp4`/`.m3u8`/`.avi`/`.ts` adreslerinde HTTP 200 ile **0 bayt** gövde döndürüyor, yalnızca `.mkv` gerçek veri veriyor (ölçüm: `scripts/xtream_teshis.py`). Eksik olan şey yedek bir adres değil, bir **demuxer**'dı; bu yüzden oynatma çekirdeği libvlc'ye taşındı. Ayrıntı için Bölüm 11.1. |
+| VLCKit bağımlılığının kapsamı genişletmesi | Orta | Bağımlılık **yalnızca oynatma katmanına** alındı. Veri, ağ, arayüz ve depolama katmanları Apple çatılarıyla yazılmaya devam ediyor; bu sınır `scripts/static_check.py` ile denetlenir (oynatma yolu `AVFoundation`'a dönerse CI kırılır). |
+| VideoLAN etiketlerinin tutarsızlığı | Orta | `exactVersion` **zorunlu**: `4.0.0a21` geçersiz semver iken `4.0.0-a24` geçerlidir. Sürüm aralığı verilirse SwiftPM geçerli en yüksek etiketi kendi seçer ve beklenmedik bir derlemeye düşer. Sabitleme hem `project.yml` içinde hem statik denetimde tutulur. |
+| Kodek tablosunun artık hüküm vermemesi | Orta | libvlc AC3/E-AC3/DTS/TrueHD/Opus ve AV1/VP9'u yazılım çözücüleriyle oynatır. `AVPlayer` döneminden kalan "bu kodek tabloda varsa çalınamaz" varsayımı **yanlış teşhis** üretirdi (kullanıcı boşuna sağlayıcıdan AAC isterdi). Tablo artık yalnızca **adlandırma** sözlüğüdür; hüküm yalnızca libvlc'nin günlükte şikâyet ettiği durumda verilir. `PlaybackDiagnosticsTests` bunu teste bağlar. |
+
+### 11.1 Ölçülmüş kök neden: neden filmler oynamıyordu
+
+Kullanıcının bildirimi: *"farklı bir uygulamada filmler çalışıyor ama bu uygulamada
+açılmıyor; sadece isimleri ve posterleri geliyor, video oynamıyor."* Üç tur boyunca
+ekranda yalnızca "Oynatma başlatılamadı." göründü ve sorun teşhis edilemedi. Neden
+bulunamıyordu: **kanıt sanılan şey kanıt değildi.** Hata metni, iz listesi ve `AVError`
+kodu — hepsi dolaylıydı.
+
+Bu yüzden neden tahmin edilmedi, **ölçüldü**. `scripts/xtream_teshis.py` gerçek
+sağlayıcıya karşı çalıştırıldı ve aynı filmin adresi farklı uzantılarla denendi:
+
+| Denenen | Sonuç |
+|---|---|
+| `.mkv` (sağlayıcının bildirdiği uzantı) | HTTP 200, **9186–9196 bayt gerçek veri** |
+| `.mp4` | HTTP 200, **0 bayt** |
+| `.m3u8` | HTTP 200, **0 bayt** |
+| `.avi` | HTTP 200, **0 bayt** |
+| `.ts` | HTTP 200, **0 bayt** |
+| Canlı yayın, `.m3u8` | HTTP 200 `[HLS]`, 2782 bayt — **çalışıyor** |
+
+Sağlayıcı her film ve bölüm için `container_extension` alanını `mkv` olarak bildiriyor.
+Yani sunucu VOD'u gerçekten yalnızca Matroska olarak veriyor; diğer uzantılar 200
+dönse bile gövde boştur. **Sonuç:** eksik olan şey yedek bir adres değil, bir
+**demuxer**'dır. `AVFoundation` çerçevesinde Matroska demuxer'ı yoktur — bu bir
+uygulama kusuru değil, çerçeve sınırıdır. Uzantı değiştirmek de kurtarmaz.
+
+Canlı yayınların aynı sağlayıcıda sorunsuz çalışması bu teşhisi doğrular: HLS
+paketlemesi `AVPlayer`'ın çözebildiği tek biçimdi ve tam da o biçim çalışıyordu.
+
+**Alınan karar:** oynatma çekirdeği libvlc'ye (VLCKit) taşındı. Projenin "üçüncü taraf
+bağımlılık yok" ilkesi bu tek katman için bilinçli olarak esnetildi; Matroska'yı
+çözmenin Apple çatılarıyla bir yolu yoktur.
+
+**İkincil kazanç:** `AVPlayer` döneminde hata nedeni dolaylı kanıttan kestiriliyordu.
+libvlc başarısızlığın nedenini kendi günlüğünde açıkça yazar (tanınmayan demuxer,
+çözülemeyen kodek, HTTP durum kodu). Teşhis artık **okunuyor**, tahmin edilmiyor —
+bu, benzer bir kusurun bir daha üç tur sürmemesini sağlar.
 
 ---
 
@@ -465,6 +539,8 @@ tamamı saf fonksiyonları ve dosya tabanlı mantığı sınar.
 | `XMLTVDateTests` | `yyyyMMddHHmmss +ZZZZ` biçiminin çözümlenmesi, saat dilimi kaydırması, geçersiz damga |
 | `CoreUtilitiesTests` | `FlexibleInt`/`FlexibleString`/`FlexibleDouble` toleransı, `AppError` eşlemesi, `HTTPError` sınıflandırması |
 | `LocalizationTests` | İki dil arasında anahtar eşliği, yinelenen anahtar, yer tutucu uyumu, boş değer, tanımsız anahtar |
+| `PlaybackDiagnosticsTests` | Hata sınıflandırmasının **sırası**, kodeğin tek başına hüküm vermemesi, kanıt cümlesi eşleşmesi, kesilme ayrımı |
+| `PlaybackRoutingTests` | Aday adres listesinin içeriği ve sırası, uzantı değiştirmede kimlik bilgisinin korunması, sorgu parametrelerinin taşınması |
 
 `CoreUtilitiesTests`'in ağırlığı `Flexible*` sarmalayıcılarındadır: Xtream panelleri
 aynı alanı bazen sayı, bazen metin döndürür (`"42"` ve `42`). Tolerans kaybedilirse
@@ -473,6 +549,14 @@ tek bir kayıt yüzünden **tüm kanal listesi** boş gelir; testler bunu engell
 `LocalizationTests` bir *koruma* testidir: yeni bir metin eklerken yalnızca tek dile
 yazmak ya da `%d` yerine `%@` kullanmak derleme hatası vermez, uygulama çalışarken
 bozuk görünür. Test bunu derleme aşamasında yakalar.
+
+`PlaybackDiagnosticsTests` ve `PlaybackRoutingTests` de aynı türden koruma
+testleridir; ikisi de VLCKit geçişinde yazıldı ve **ürün kusurunun geri gelmesini**
+engeller. İlki sınıflandırmanın sırasını sabitler (sunucu reddi kodek hükmünden önce
+gelir; ölçülen kodek tek başına "çalınamaz" demek değildir), ikincisi aday adres
+listesinin içeriğini ve sırasını. Bu kurallar sessizce geri alınırsa derleme
+bozulmaz — yalnızca filmler yeniden oynamaz ve kusur üç tur boyunca görünmez kalır.
+Testler bunu gözle görülür kılar.
 
 Planlanan ama henüz yazılmamış: `NetworkClient` için mock'lanmış yanıtlarla
 entegrasyon testleri (401/404/timeout), UI testleri (kaynak ekleme akışı,

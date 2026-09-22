@@ -15,9 +15,23 @@ hem ilk açılışta hem de kaynak ekleme ekranında gösterilir.
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) — `brew install xcodegen`
 - Hedef: iOS 16.0 ve üzeri, iPhone + iPad
 
-Projede **üçüncü taraf bağımlılık yoktur**; her şey SwiftUI, AVKit ve standart
-Foundation API'leriyle yazılmıştır. `Package.swift`, Podfile veya SPM paketi
-bulunmaz.
+Projede **tek bir üçüncü taraf bağımlılık** vardır: oynatma çekirdeği olarak
+[VLCKit](https://code.videolan.org/videolan/vlckit) (VideoLAN'ın kendi libvlc
+derlemesi). Bunun dışındaki her şey SwiftUI, Foundation ve Combine ile
+yazılmıştır; Podfile veya başka bir paket yöneticisi kullanılmaz.
+
+Bağımlılığın nedeni ölçülmüş bir sınır: kaynak sağlayıcı filmleri ve dizileri
+**yalnızca Matroska (`.mkv`)** olarak sunuyor ve `AVFoundation`'ın Matroska
+demuxer'ı yoktur. Bu bir uygulama kusuru değil, çerçeve sınırıdır. Uzantıyı
+değiştirmek de çözmez — sunucu diğer uzantılarda gövdeyi **boş** döndürüyor;
+eksik olan şey yedek bir adres değil, bir **demuxer**'dır. Ayrıntı ve ölçüm
+yöntemi: [`docs/MIMARI.md`](docs/MIMARI.md) Bölüm 11 ve
+`scripts/xtream_teshis.py`.
+
+Paket **sabit sürümle** bağlanır (`exactVersion`). VideoLAN etiketleri tutarsız
+biçimde attığı için (`4.0.0a21` geçersiz, `4.0.0-a24` geçerli semver) bir sürüm
+aralığı verildiğinde SwiftPM geçerli en yüksek etiketi kendi seçer ve beklenmedik
+bir derlemeye düşebilir.
 
 ---
 
@@ -138,7 +152,14 @@ itme yaparsanız önceki çalışma otomatik iptal edilir.
 
 Canlı TV, kategoriler ve arama; EPG (şimdi/sırada, ilerleme çubuğu, kanal bazlı
 yayın akışı); film ve dizi kataloğu (sezon/bölüm gezintisi); favoriler; son
-izlenenler ve kaldığı yerden devam; Picture-in-Picture desteği.
+izlenenler ve kaldığı yerden devam.
+
+Picture-in-Picture **şu anda kapalıdır**: `AVPictureInPictureController` somut bir
+`AVPlayerLayer` üzerine kurulur ve libvlc görüntüyü kendi çizdiği katmana yazar, bu
+yüzden o yol kullanılamaz. VLCKit 4.0 kendi PiP API'sini sunar
+(`VLCPictureInPictureDrawable` ve iki denetleyici protokolü) ancak bu protokollerin
+Swift köprüsü derleyici olmadan doğrulanamadığı için eklenmedi; arayüz düğmeyi
+çizmez. Ayrıntı: [`docs/MIMARI.md`](docs/MIMARI.md) Bölüm 10.
 
 ---
 
@@ -187,12 +208,22 @@ tasarım kararları için [`docs/MIMARI.md`](docs/MIMARI.md) dosyasına bakın.
 
 ## Testler
 
-`IPiosTests` hedefinde dört dosya bulunur:
+`IPiosTests` hedefinde altı dosya bulunur:
 
 - `M3UParserTests.swift` — bozuk satırlar, eksik attribute, çoklu adres, BOM/CRLF
 - `XMLTVDateTests.swift` — XMLTV zaman damgası ve saat dilimi dönüşümleri
 - `CoreUtilitiesTests.swift` — biçimleyiciler (süre, aralık, yüzde, dosya boyutu)
 - `LocalizationTests.swift` — anahtar eşliği, yer tutucu uyumu, tanımsız anahtar
+- `PlaybackDiagnosticsTests.swift` — hata sınıflandırmasının sırası; ölçülen bir
+  kodeğin tek başına "çalınamaz" hükmü **vermemesi**; kesilmenin başlatılamamadan
+  ayrılması
+- `PlaybackRoutingTests.swift` — denenen adres listesinin içeriği ve sırası;
+  uzantı değiştirilirken kimlik bilgisinin ve sorgu parametrelerinin korunması
+
+Son iki dosya **ürün kusurunu** hedefler: sağlayıcı filmleri yalnızca Matroska
+olarak sunduğu ve `AVFoundation`'ın Matroska demuxer'ı olmadığı için filmler hiç
+oynamıyordu. Oynatma yolu bir gün `AVFoundation`'a dönerse derleme yine başarılı
+olur — yalnızca filmler sessizce oynamaz. Bu testler o sessizliği görünür kılar.
 
 Bunlara ek olarak `scripts/static_check.py` derleyici gerektirmeyen bir denetim
 yapar ve hem CI'da hem yerelde çalışır:
