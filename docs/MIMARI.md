@@ -665,6 +665,21 @@ nil` "hata" değil "Kapalı" demektir ve menüde bu her zaman ilk satırdır. Ay
 açıkken kontrollerin kendiliğinden gizlenmesi durdurulur; aksi hâlde menü kontrol
 katmanıyla birlikte kaybolur ve seçim yarıda kesilirdi.
 
+**Altıncı ölçüm: Swift köprüleme etiketi kısaltır.** İlk derleme şu hatayla
+düştü:
+
+```
+error: 'mediaPlayerTrackAdded(_:withType:)' has been renamed to 'mediaPlayerTrackAdded(_:with:)'
+```
+
+Objective-C bildirimi `mediaPlayerTrackAdded:withType:` şeklindedir, ancak Swift
+köprülemesi argüman tipinin adıyla (`VLCMedia.TrackType`) aynı olan son sözcüğü
+(`Type`) düşürüp etiketi `with`e indirir. Üç iz bildiriminin üçü de aynı tuzağa
+sahiptir. Bu tür bir hata **yalnızca Swift derleyicisi olan ortamda** görülür —
+yani bu depoda yalnızca CI'da. Bu yüzden `scripts/static_check.py` içine bir
+denetim eklendi (bkz. 13. Bölüm): `withType` etiketi yazılırsa statik denetim
+kırılır ve hata CI'ın ilk işinde, derlemeden önce yakalanır.
+
 **Kapsam sınırı:** yalnızca **gömülü** izler. Dışarıdan altyazı dosyası yüklemek
 (`VLCMediaSlave` yolu) bu sürümün dışındadır.
 
@@ -718,6 +733,25 @@ Testler bunu gözle görülür kılar.
 Planlanan ama henüz yazılmamış: `NetworkClient` için mock'lanmış yanıtlarla
 entegrasyon testleri (401/404/timeout), UI testleri (kaynak ekleme akışı,
 kategori-arama gezinmesi) ve gerçek sağlayıcılarla manuel testler.
+
+### 13.1 Derleyicisiz doğrulanan mantık (`scripts/`)
+
+VM'de Swift derleyicisi yoktur; bu yüzden sessizce yanlış davranabilecek karar
+akışları **birebir Python portu** üzerinden CI'da sınanır:
+
+| Betik | Sınadığı mantık |
+|---|---|
+| `seek_mantik_testi.py` | Tampon göstergesinin sarma boyunca açık kalması, "hedefe ulaşıldı" ölçütü, `.playing` için asgari bekleme |
+| `iz_mantik_testi.py` | İz seçiminde kimlik temelli eşleşme, menü görünürlük ölçütü, "Kapalı" durumu, boş ad → numaralı etiket, durdurunca liste boşalması |
+
+Bu ikisi `IPiosTests` içindeki Swift testlerinin **yerine geçmez**, tamamlayıcısıdır:
+Swift testleri gerçek tipleri kullanır ama yalnızca CI'da koşar; portlar hızlıdır ve
+mantığın okunabilir bir ifadesini tutar. İkisi ayrışırsa Swift tarafı doğrudur.
+
+`static_check.py` ise derlemeden önce yapısal denetimler yapar: yerelleştirme anahtar
+eşliği, MIMARI.md ağacının gerçek dosyalarla hizası, VLCKit sabitlemesi, oynatma
+yolunun AVFoundation'a dönmemesi ve VLCKit köprüleme etiketlerinin doğru yazımı
+(`withType` → `with` tuzağı, bkz. Bölüm 11.4).
 
 ---
 

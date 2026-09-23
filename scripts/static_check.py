@@ -437,6 +437,46 @@ def bagimlilik_sozlesmesi() -> None:
 
     yaz(f"  oynatma motoru: {adlar[0] if adlar else '(yok)'}")
 
+    # 15. VLCKit köprüleme etiketleri.
+    #
+    # Objective-C bildirimi `mediaPlayerTrackAdded:withType:` şeklindedir ama
+    # Swift köprülemesi argüman tipinin adıyla (`VLCMedia.TrackType`) aynı olan
+    # son sözcüğü (`Type`) düşürüp etiketi `with`e indirir. `withType` yazılırsa
+    # derleme *"'…withType:' has been renamed to '…with:'"* hatasıyla düşer.
+    #
+    # **Neden burada denetlenir:** bu bir yazım tuzağıdır ve yalnızca Swift
+    # derleyicisi olan ortamda görülür — yani bu depoda yalnızca CI'da. Bir kez
+    # tam olarak bu hatayla derleme kırıldı.
+    for path in oynatici:
+        src = strip_swift_comments(path.read_text(encoding="utf-8"))
+        rel = path.relative_to(KOK).as_posix()
+        for metot in ("mediaPlayerTrackAdded", "mediaPlayerTrackRemoved",
+                      "mediaPlayerTrackUpdated"):
+            if re.search(rf"func\s+{metot}\s*\([^)]*\bwithType\b", src):
+                hata(
+                    f"{rel}: {metot} içinde 'withType' etiketi kullanılmış. "
+                    f"Swift köprülemesi bu etiketi 'with' yapar; 'withType' "
+                    f"derleme hatası verir."
+                )
+
+    # 16. `mediaPlayerTrackSelected` uygulanmamalı (çökme riski).
+    #
+    # Başlıkta `NS_ASSUME_NONNULL_BEGIN` içinde, yani `nonnull` bildirilen iki
+    # parametre uygulamada **nil geçilebiliyor**
+    # (`Sources/Playback/VLCMediaPlayer.m`, `HandleMediaPlayerTrackSelectionChanged`).
+    # Swift bunları opsiyonel olmayan `String` olarak içeri alır ve nil
+    # geldiğinde köprüleme çöker; nil tam da **hiçbir iz seçili değilken** bir
+    # iz seçilince geçilir. Ayrıntı: docs/MIMARI.md Bölüm 11.4.
+    for path in oynatici:
+        src = strip_swift_comments(path.read_text(encoding="utf-8"))
+        rel = path.relative_to(KOK).as_posix()
+        if re.search(r"func\s+mediaPlayerTrackSelected\s*\(", src):
+            hata(
+                f"{rel}: 'mediaPlayerTrackSelected' uygulanmış. Bu geri çağrının "
+                f"iki parametresi uygulamada nil olabiliyor ama başlıkta nonnull "
+                f"bildirilmiş; köprüleme nil gelince çöker. Ayrıntı: MIMARI.md 11.4."
+            )
+
     # 14. Ses seviyesi ölçeği.
     #
     # `VLCAudio.volume` bir **tamsayı** ölçektir (0–100 ve üzeri); arayüz ise

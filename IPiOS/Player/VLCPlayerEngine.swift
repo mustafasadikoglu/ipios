@@ -908,17 +908,25 @@ private final class EngineBridge: NSObject, VLCMediaPlayerDelegate {
     /// İz eklendi/çıkarıldı/güncellendi. Üçü de aynı işi tetikler: listeyi
     /// yeniden oku. Ayrı ayrı ele almanın bir faydası yoktur — liste zaten
     /// libvlc'den bütün olarak okunur.
-    func mediaPlayerTrackAdded(_ trackId: String, withType trackType: VLCMedia.TrackType) {
+    ///
+    /// **Dikkat: etiket `withType` değil `with`.** Objective-C bildirimi
+    /// `mediaPlayerTrackAdded:withType:` şeklindedir ama Swift köprülemesi
+    /// argüman tipinin adıyla (`VLCMedia.TrackType`) aynı olan son sözcüğü
+    /// (burada `Type`) düşürüp etiketi kısaltır. `withType` yazılırsa derleme
+    /// *"has been renamed to ... with:"* hatasıyla düşer — ve bu yalnızca
+    /// Swift derleyicisi olan ortamda (CI) görülür, bu yüzden yazımı burada
+    /// açıkça kayda geçirilir.
+    func mediaPlayerTrackAdded(_ trackId: String, with trackType: VLCMedia.TrackType) {
         let handler = onTracksChanged
         Task { @MainActor in handler?() }
     }
 
-    func mediaPlayerTrackRemoved(_ trackId: String, withType trackType: VLCMedia.TrackType) {
+    func mediaPlayerTrackRemoved(_ trackId: String, with trackType: VLCMedia.TrackType) {
         let handler = onTracksChanged
         Task { @MainActor in handler?() }
     }
 
-    func mediaPlayerTrackUpdated(_ trackId: String, withType trackType: VLCMedia.TrackType) {
+    func mediaPlayerTrackUpdated(_ trackId: String, with trackType: VLCMedia.TrackType) {
         let handler = onTracksChanged
         Task { @MainActor in handler?() }
     }
