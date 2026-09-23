@@ -15,15 +15,33 @@ final class PlayerViewModel: ObservableObject {
     @Published var isFullscreen = false
     @Published var showsErrorAlert = false
 
+    /// İz menüsünün açık olup olmadığı.
+    ///
+    /// **Neden görünümde değil burada:** menü açıkken kontrollerin kendiliğinden
+    /// gizlenmesi engellenir (bkz. `scheduleControlsHide`). Bayrak görünümün
+    /// `@State`'inde olsaydı gizleme zamanlayıcısı onu göremez, süre dolunca
+    /// kontrol katmanı kaybolur ve altında duran menü de anlamsız kalırdı.
+    @Published var showsTrackMenu = false
+
+    /// İçerikteki ses/altyazı izleri. Motorun yayını buraya **kopyalanır**.
+    ///
+    /// **Neden kopya:** SwiftUI iç içe `ObservableObject` yayınlarını kendiliğinden
+    /// yaymaz — görünüm yalnızca `viewModel`'i dinlediği için
+    /// `viewModel.engine.tracks` doğrudan okunsaydı liste değiştiğinde ekran
+    /// yenilenmezdi ve kullanıcı menüyü açtığında **boş** bir liste görürdü.
+    @Published private(set) var tracks: PlaybackTrackSet = .empty
+
     let engine: VLCPlayerEngine
     private let environment: AppEnvironment
     private var controlsTask: Task<Void, Never>?
     private var stateSubscription: AnyCancellable?
+    private var tracksSubscription: AnyCancellable?
 
     init(environment: AppEnvironment) {
         self.environment = environment
         self.engine = environment.player
         observeEngineState()
+        observeEngineTracks()
     }
 
     /// Motorun durumunu gerçek zamanlı izler.
@@ -44,6 +62,47 @@ final class PlayerViewModel: ObservableObject {
             }
     }
 
+    /// Motorun iz listesini görünüme taşır.
+    ///
+    /// **Neden `@Published` kopya gerekiyor:** `viewModel.engine.tracks` doğrudan
+    /// okunsaydı SwiftUI değişimi görmezdi; `engine` bir `ObservableObject` olsa
+    /// bile iç içe nesnelerin yayınları üst görünüme **geçmez**. Kullanıcı menüyü
+    /// açtığında boş liste görürdü.
+    ///
+    /// `removeDuplicates()` buraya bilerek konur: libvlc aynı durumu art arda
+    /// birkaç kez bildirir (ekleme + seçim + güncelleme) ve her bildirim
+    /// listeyi yeniden okur. `PlaybackTrackSet` `Equatable` olduğu için aynı
+    /// içerikli okumalar burada elenir ve SwiftUI gereksiz yere yeniden çizmez.
+    /// Eşitlik **kimliklere** dayanır (`trackId`), nesne kimliğine değil — bu
+    /// yüzden nesnelerin her okumada yeniden üretilmesi sonucu bozmaz.
+    private func observeEngineTracks() {
+        tracksSubscription = engine.$tracks
+            .removeDuplicates()
+            .sink { [weak self] set in
+                self?.tracks = set
+            }
+    }
+
+    // MARK: - İz seçimi
+
+    /// Seçilebilecek iz var mı? Kontrol katmanındaki düğme buna bakar.
+    var hasTrackChoice: Bool { tracks.hasAnyChoice }
+
+    func selectAudioTrack(id: String) {
+        engine.selectAudioTrack(id: id)
+        showControls()
+    }
+
+    func selectSubtitleTrack(id: String) {
+        engine.selectSubtitleTrack(id: id)
+        showControls()
+    }
+
+    func disableSubtitles() {
+        engine.disableSubtitles()
+        showControls()
+    }
+
     var isPlaying: Bool { engine.state.isPlaying }
     var isLive: Bool { engine.isLive }
     /// Ekran başlığı. Öğe ve motor başlığı boşsa (henüz yükleme yapılmadıysa)
@@ -62,6 +121,9 @@ final class PlayerViewModel: ObservableObject {
         guard let playable = item.playable else { return }
         self.item = item
         resetErrorState()
+        // Yeni içerikte iz menüsü kapalı başlar: önceki içeriğin izleri artık
+        // geçersizdir ve açık bir menü boş bir liste gösterirdi.
+        showsTrackMenu = false
 
         // Kaydedilmiş konum varsa oradan devam edilir.
         let position = environment.recents.position(for: playable)
@@ -100,6 +162,10 @@ final class PlayerViewModel: ObservableObject {
         Task { await engine.persistPosition() }
         engine.stop()
         item = nil
+        // Menü açıkken oynatıcı kapatılırsa bayrak açık kalır ve bir sonraki
+        // içerik menüsü kapalı çizilmez. Motorun iz listesi `stop()` içinde
+        // boşaldığı için açık bir menü boş liste gösterirdi.
+        showsTrackMenu = false
     }
 
     // MARK: - Kontroller
@@ -120,13 +186,31 @@ final class PlayerViewModel: ObservableObject {
 
     /// Canlı yayında kontroller daha çabuk gizlenir; VOD'da kullanıcı çubuğu
     /// kullanıyor olabilir.
+    ///
+    /// **İz menüsü açıkken gizleme yapılmaz.** Menü kontrol katmanına bağlıdır;
+    /// kontrol katmanı kaybolursa menü de kaybolur ve seçim yarıda kesilir.
+    /// Menü kapandığında gizleme yeniden planlanır.
     func scheduleControlsHide() {
         controlsTask?.cancel()
+        guard !showsTrackMenu else { return }
         let delay: Duration = isLive ? .seconds(4) : .seconds(6)
         controlsTask = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
+            // Bekleme sırasında menü açılmış olabilir; uyanınca yeniden bakılır.
+            guard self?.showsTrackMenu != true else { return }
             withAnimation(.easeOut(duration: 0.2)) { self?.showsControls = false }
+        }
+    }
+
+    /// İz menüsünü açar/kapatır. Kapatınca gizleme sayacı yeniden başlar.
+    func toggleTrackMenu() {
+        showsTrackMenu.toggle()
+        showControls()
+        if showsTrackMenu {
+            controlsTask?.cancel()
+        } else {
+            scheduleControlsHide()
         }
     }
 

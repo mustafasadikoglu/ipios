@@ -144,6 +144,11 @@ private struct PlayerContent: View {
                 .contentShape(Rectangle())
                 .onTapGesture {
                     guard !isScrubbing else { return }
+                    // Menü açıkken dokunuş yalnızca onu kapatır. Menü katmanı
+                    // zaten üstte durur ve dokunuşu yakalar; buradaki kontrol
+                    // yalnızca savunma amaçlıdır (katman sırası değişirse
+                    // menü açıkken kontroller gizlenip menü havada kalırdı).
+                    guard !viewModel.showsTrackMenu else { return }
                     viewModel.toggleControls()
                 }
 
@@ -184,7 +189,37 @@ private struct PlayerContent: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                 .allowsHitTesting(false)
             }
+
+            // Menü en üstte durur: kontrol katmanının üstünde açılır ki
+            // kullanıcı iz değiştirirken kontrollerin altında kalmasın.
+            if viewModel.showsTrackMenu {
+                trackMenuLayer
+            }
         }
+    }
+
+    /// Ses/altyazı menüsü ve arkasındaki karartma.
+    ///
+    /// Karartmaya dokunmak menüyü kapatır. Aksi hâlde dokunuş alttaki genel
+    /// dokunuş alanına düşer, yalnızca kontrol katmanı gizlenir ve menü
+    /// **açık kalırdı** — kontrolleri olmayan, kapatılamayan bir kart.
+    private var trackMenuLayer: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { viewModel.toggleTrackMenu() }
+
+            TrackMenuView(
+                tracks: viewModel.tracks,
+                onSelectAudio: { viewModel.selectAudioTrack(id: $0) },
+                onSelectSubtitle: { viewModel.selectSubtitleTrack(id: $0) },
+                onDisableSubtitles: { viewModel.disableSubtitles() },
+                onDismiss: { viewModel.toggleTrackMenu() }
+            )
+            .padding(.horizontal, Theme.Metrics.gutter)
+        }
+        .transition(.opacity)
     }
 
     // MARK: - Üst çubuk
@@ -220,6 +255,22 @@ private struct PlayerContent: View {
 
             if viewModel.isLive {
                 BadgeLabel(text: L.t("player.live"), style: .live)
+            }
+
+            // Yalnızca gerçekten seçenek varsa gösterilir: tek ses izli ve
+            // altyazısız içerikte menü kullanıcıya hiçbir şey sunmazdı.
+            if viewModel.hasTrackChoice {
+                Button {
+                    viewModel.toggleTrackMenu()
+                } label: {
+                    Image(systemName: "captions.bubble")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 38, height: 38)
+                        .background(.black.opacity(0.35))
+                        .clipShape(Circle())
+                }
+                .accessibilityLabel(Text(L.t("player.action.tracks")))
             }
 
             if pip.isSupported {

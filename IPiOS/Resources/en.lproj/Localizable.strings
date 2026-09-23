@@ -187,6 +187,17 @@
 "player.action.forward"         = "Skip 10 seconds forward";
 "player.action.backward"        = "Skip 10 seconds back";
 "player.hint.tap"               = "Tap to show controls";
+/* İz (ses / altyazı) seçimi. Altyazıda "Kapalı" **her zaman** sunulur:
+   altyazıyı kapatmak da bir seçimdir, hata değil. */
+"player.action.tracks"          = "Audio & Subtitles";
+"player.tracks.title"           = "Audio & Subtitles";
+"player.tracks.audioSection"    = "Audio";
+"player.tracks.subtitleSection" = "Subtitles";
+"player.tracks.off"             = "Off";
+/* Gömülü izlerin adı çoğu zaman boştur; bu durumda sıra numarasıyla
+   etiket üretilir ("Altyazı 2"). Etiket yerelleştirilmiş olmalıdır. */
+"player.tracks.audioOrdinal"    = "Audio %d";
+"player.tracks.subtitleOrdinal" = "Subtitle %d";
 /* Measured reasons for a playback failure. The generic "Playback could not be
    started." text told the user nothing; these name the actual format/codec the
    stream carries. */

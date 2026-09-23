@@ -106,6 +106,7 @@ ipios/
 │   ├── CoreUtilitiesTests.swift
 │   ├── PlaybackRoutingTests.swift
 │   ├── PlaybackDiagnosticsTests.swift
+│   ├── PlaybackTrackTests.swift
 │   └── LocalizationTests.swift
 └── IPiOS/
     ├── App/                          # uygulama girişi ve kök akış
@@ -142,6 +143,7 @@ ipios/
     │   │   ├── Series.swift
     │   │   ├── EPGProgram.swift
     │   │   ├── MediaItem.swift       # ortak arayüz (protokol)
+    │   │   ├── PlaybackTrack.swift   # ses/altyazı izi + seçim kümesi
     │   │   └── PlayableItem.swift    # birleşik oynatma modeli (enum)
     │   └── Services/
     │       ├── PlaylistProviding.swift
@@ -197,7 +199,9 @@ ipios/
     │   │   ├── SeriesView.swift
     │   │   └── SeriesDetailView.swift
     │   ├── Search/SearchView.swift
-    │   ├── Player/PlayerView.swift
+    │   ├── Player/
+    │   │   ├── PlayerView.swift    # tam ekran oynatıcı + kontrol katmanı
+    │   │   └── TrackMenuView.swift  # ses/altyazı seçim kartı
     │   └── Settings/SettingsView.swift
     └── Resources/
         ├── Assets.xcassets/
@@ -324,6 +328,12 @@ protocol PlaybackProviding: AnyObject {
     func seek(by seconds: Double); func seek(to seconds: Double)
     func persistPosition() async
     func setVolume(_ value: Float)
+
+    // İzler (gömülü ses / altyazı)
+    var tracks: PlaybackTrackSet { get }
+    func selectAudioTrack(id: String)
+    func selectSubtitleTrack(id: String)
+    func disableSubtitles()
 }
 ```
 
@@ -475,6 +485,8 @@ Kritik noktalar:
 | Kodek tablosunun artık hüküm vermemesi | Orta | libvlc AC3/E-AC3/DTS/TrueHD/Opus ve AV1/VP9'u yazılım çözücüleriyle oynatır. `AVPlayer` döneminden kalan "bu kodek tabloda varsa çalınamaz" varsayımı **yanlış teşhis** üretirdi (kullanıcı boşuna sağlayıcıdan AAC isterdi). Tablo artık yalnızca **adlandırma** sözlüğüdür; hüküm yalnızca libvlc'nin günlükte şikâyet ettiği durumda verilir. `PlaybackDiagnosticsTests` bunu teste bağlar. |
 | Görüntü yüzeyi oynatma başlamadan bağlanmazsa "ses var, görüntü yok" | Yüksek | Yüzey artık `VideoSurfaceView` içinde üretilmez; **motorun malıdır** (`VLCPlayerEngine.videoSurface`) ve oynatıcı kurulurken bir kez `drawable` olarak atanır, hiç koparılmaz. Ayrıntı ve ölçülmüş belirti için Bölüm 11.2. |
 | İleri sarma sırasında gösterge çıkmaması ("donuyor, yüklenmiyor") | Yüksek | Sarma durumu motorda açıkça izlenir (`isSeeking`) ve gösterge sarma boyunca açık kalır; kapatma kararı "zaman ilerledi" değil "hedefe ulaşıldı" ölçütüne ve `.playing` için asgari bir bekleme süresine bağlanır. Ayrıca sağlayıcının HTTP `Range` desteği ölçülür (`xtream_teshis.py` bölüm `[5d]`). Ayrıntı için Bölüm 11.3. |
+| VLCKit iz nesnelerinin her okumada yeniden üretilmesi | Yüksek | `VLCMediaPlayer.audioTracks`/`textTracks` her okumada **yeni nesneler** döndürür (`_tracksForType:`), bu yüzden o nesneler doğrudan SwiftUI listesine konamaz — kimlik her yenilemede değişir ve seçim kayar. Arayüze yalnızca kararlı alanlar taşınır (`PlaybackTrack.trackId`) ve seçim kimlikle yapılır. Ayrıntı Bölüm 11.4. |
+| `mediaPlayerTrackSelected` delege geri çağrısının çökme riski | Yüksek | Başlıkta `nonnull` bildirilen iki parametre uygulamada **nil geçilebiliyor** (`unselected ? … : nil`); Swift bunları opsiyonel olmayan `String` olarak alır ve nil geldiğinde köprüleme çöker. nil tam da *hiçbir iz seçili değilken* bir iz seçilince geçilir. Geri çağrı bu yüzden **uygulanmaz**; liste seçim yapan yollarda ve iz ekleme/güncelleme bildirimlerinde tazelenir. Ayrıntı Bölüm 11.4. |
 | Sağlayıcının HTTP `Range` desteklememesi | Orta | Sarma dosyanın başından indirmeyi gerektirir ve uzun sürer; bu sağlayıcının sınırıdır, uygulamanın kusuru değil. Teşhis betiği bunu **hüküm** olarak raporlar ki kullanıcı boşuna uygulamada çözüm aramasın. |
 
 ### 11.1 Ölçülmüş kök neden: neden filmler oynamıyordu
@@ -573,6 +585,91 @@ aramamalıdır.
 
 ---
 
+### 11.4 Ses ve altyazı izi seçimi: kimlik kararlıdır, nesne değil
+
+**İstenen:** oynatıcıda gömülü ses ve altyazı izleri arasında geçiş yapmak.
+Kapsam bilinçli olarak **gömülü izlerle** sınırlıdır; dışarıdan `.srt` yüklemek
+kapsam dışıdır.
+
+**Birinci ölçüm: iz nesneleri kararlı değil.** VLCKit kaynağına bakıldı
+(`Headers/Public/Playback/VLCMediaPlayer.h` ve `Sources/Playback/VLCMediaPlayer.m`,
+sürüm `4.0.0-a24`). `audioTracks`, `videoTracks` ve `textTracks` özelliklerinin üçü
+de aynı özel metoda gider:
+
+```objc
+- (NSArray<VLCMediaPlayerTrack *> *)_tracksForType:(const libvlc_track_type_t)type
+{
+    libvlc_media_tracklist_t *tracklist = libvlc_media_player_get_tracklist(_playerInstance, type, false);
+    ...
+    for (size_t i = 0; i < tracklistCount; i++) {
+        libvlc_media_track_t *track_t = libvlc_media_tracklist_at(tracklist, i);
+        VLCMediaPlayerTrack *track = [[VLCMediaPlayerTrack alloc] initWithMediaTrack: track_t mediaPlayer: self];
+        [tracks addObject: track];
+    }
+```
+
+Yani **her okuma yeni bir dizi ve yeni nesneler üretir.** Bu yüzden `VLCMediaPlayer.
+Track` doğrudan `Identifiable` yapılıp SwiftUI listesine konamaz: her yenilemede
+kimlik değişir, liste baştan kurulur ve seçim "kayar". Arayüze taşınan şey
+`PlaybackTrack` olur ve o yalnızca **kararlı** alanları taşır: libvlc'nin iz kimliği
+(`trackId`) ve okunabilir ad. Seçim her zaman kimlikle yapılır, indeksle veya nesne
+kimliğiyle değil.
+
+**İkinci ölçüm: ses izi seçiminde `setSelected` güvenilmez.** Aynı kaynakta:
+
+```objc
+if (type == libvlc_track_audio && selectedTrackIDs.count >= 2) {
+    VKLog(@"WARNING: selecting multiple audio tracks is currently not supported.");
+    return;
+}
+```
+
+`setSelected = true` çağrısı, o türden **iki veya daha fazla iz zaten seçiliyse**
+sessizce hiçbir şey yapmaz. Buna karşılık `setSelectedExclusively = true` doğrudan
+`libvlc_media_player_select_track` çağırır ve güvenilirdir. Bu yüzden ses seçimi
+`isSelectedExclusively` üzerinden yapılır.
+
+**Üçüncü ölçüm: bir delege geri çağrısı çökme riski taşıyor ve bu yüzden
+uygulanmadı.** `mediaPlayerTrackSelected:selectedId:unselectedId:` başlıkta
+`NS_ASSUME_NONNULL_BEGIN` bloğu içinde bildirilmiştir, yani parametreler `nonnull`:
+
+```objc
+- (void)mediaPlayerTrackSelected:(VLCMediaTrackType)trackType
+                      selectedId:(NSString *)unselectedId   // başlıktaki ad yanlış
+                    unselectedId:(NSString*)unselectedId;
+```
+
+Ancak uygulamada iki parametre de **nil olabiliyor**:
+
+```objc
+NSString *unselectedId = unselected ? [NSString stringWithUTF8String:unselected] : nil;
+```
+
+Swift `nonnull` bir `NSString *` parametresini **opsiyonel olmayan `String`** olarak
+içeri alır. nil geçildiğinde köprüleme çöker — ve nil tam da **hiçbir iz seçili
+değilken** bir iz seçildiğinde geçilir, yani kullanıcının altyazıyı ilk kez açtığı
+anda. Başlıktaki `nonnull` işareti burada bir güvence değil, bir yanlış anlamadır.
+Bu geri çağrı bu yüzden **uygulanmaz**; işlevsel kayıp yoktur: seçim yapan üç yolun
+üçü de listeyi kendisi tazeler, libvlc'nin kendi kararıyla yaptığı seçim ise
+`mediaPlayerTrackAdded` ve `mediaPlayerTrackUpdated` bildirimleriyle yakalanır
+(liste o bildirimde zaten yeniden okunur ve `isSelected` libvlc'den taze gelir).
+
+**Dördüncü karar: iç içe `ObservableObject` yayını görünüme geçmez.** `PlayerView`
+yalnızca `PlayerViewModel`'i dinler. Motorun `tracks` yayınına doğrudan abone
+olunsaydı liste değiştiğinde ekran yenilenmez ve kullanıcı menüyü açtığında **boş**
+liste görürdü. Bu yüzden görünüm modeli motorun yayınını kendi `@Published` alanına
+kopyalar.
+
+**Beşinci karar: altyazıyı kapatmak geçerli bir seçimdir.** `selectedSubtitleID ==
+nil` "hata" değil "Kapalı" demektir ve menüde bu her zaman ilk satırdır. Ayrıca menü
+açıkken kontrollerin kendiliğinden gizlenmesi durdurulur; aksi hâlde menü kontrol
+katmanıyla birlikte kaybolur ve seçim yarıda kesilirdi.
+
+**Kapsam sınırı:** yalnızca **gömülü** izler. Dışarıdan altyazı dosyası yüklemek
+(`VLCMediaSlave` yolu) bu sürümün dışındadır.
+
+---
+
 ## 12. Yol Haritası
 
 | Faz | İçerik | Süre tahmini |
@@ -600,6 +697,7 @@ tamamı saf fonksiyonları ve dosya tabanlı mantığı sınar.
 | `LocalizationTests` | İki dil arasında anahtar eşliği, yinelenen anahtar, yer tutucu uyumu, boş değer, tanımsız anahtar |
 | `PlaybackDiagnosticsTests` | Hata sınıflandırmasının **sırası**, kodeğin tek başına hüküm vermemesi, kanıt cümlesi eşleşmesi, kesilme ayrımı |
 | `PlaybackRoutingTests` | Aday adres listesinin içeriği ve sırası, uzantı değiştirmede kimlik bilgisinin korunması, sorgu parametrelerinin taşınması |
+| `PlaybackTrackTests` | İz seçiminde **kimlik** temelli eşleşme, menü görünürlük ölçütü, altyazının "kapalı" olmasının geçerli bir durum olması, boş ad → 1 tabanlı numaralı etiket |
 
 `CoreUtilitiesTests`'in ağırlığı `Flexible*` sarmalayıcılarındadır: Xtream panelleri
 aynı alanı bazen sayı, bazen metin döndürür (`"42"` ve `42`). Tolerans kaybedilirse

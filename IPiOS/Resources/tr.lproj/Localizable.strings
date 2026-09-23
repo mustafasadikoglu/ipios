@@ -187,6 +187,17 @@
 "player.action.forward"         = "10 saniye ileri";
 "player.action.backward"        = "10 saniye geri";
 "player.hint.tap"               = "Kontroller için dokunun";
+/* İz (ses / altyazı) seçimi. Altyazıda "Kapalı" **her zaman** sunulur:
+   altyazıyı kapatmak da bir seçimdir, hata değil. */
+"player.action.tracks"          = "Ses ve Altyazı";
+"player.tracks.title"           = "Ses ve Altyazı";
+"player.tracks.audioSection"    = "Ses";
+"player.tracks.subtitleSection" = "Altyazı";
+"player.tracks.off"             = "Kapalı";
+/* Gömülü izlerin adı çoğu zaman boştur; bu durumda sıra numarasıyla
+   etiket üretilir ("Altyazı 2"). Etiket yerelleştirilmiş olmalıdır. */
+"player.tracks.audioOrdinal"    = "Ses %d";
+"player.tracks.subtitleOrdinal" = "Altyazı %d";
 /* Oynatma hatasının **ölçülmüş** nedenleri. Genel "Oynatma başlatılamadı."
    metni kullanıcıya ne olduğunu söylemiyordu; bu metinler akışın taşıdığı
    gerçek biçimi/kodeği adıyla bildirir. */

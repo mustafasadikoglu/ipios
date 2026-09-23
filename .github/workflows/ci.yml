@@ -42,6 +42,13 @@ jobs:
       - name: Tampon göstergesi mantığını sına
         run: python3 scripts/seek_mantik_testi.py
 
+      # Ses/altyazı izi seçimi mantığı. Üç ayrı katmana dağılmıştır (model +
+      # motor + görünüm) ve üçü de sessizce yanlış davranabilir. En kritik
+      # kontrol: seçim **kimlikle** yapılmalı, indeksle veya nesne kimliğiyle
+      # değil — libvlc iz nesnelerini her okumada yeniden üretir.
+      - name: İz seçimi mantığını sına
+        run: python3 scripts/iz_mantik_testi.py
+
       - name: Raporu yükle
         if: always()
         uses: actions/upload-artifact@v4

@@ -84,4 +84,22 @@ protocol PlaybackProviding: AnyObject {
 
     /// Ses seviyesi 0...1.
     func setVolume(_ value: Float)
+
+    // MARK: - İzler (ses / altyazı)
+
+    /// İçerikte bulunan ses ve altyazı izleri ile o an seçili olanlar.
+    ///
+    /// İzler ancak akış çözüldükten **sonra** bilinir; dosya açılmadan önce bu
+    /// küme boştur. Arayüz boş kümeyi "seçenek yok" olarak göstermelidir, hata
+    /// olarak değil.
+    var tracks: PlaybackTrackSet { get }
+
+    /// Ses izini seçer. Kimlik bulunamazsa sessizce hiçbir şey yapılmaz.
+    func selectAudioTrack(id: String)
+
+    /// Altyazı izini seçer. Kimlik bulunamazsa sessizce hiçbir şey yapılmaz.
+    func selectSubtitleTrack(id: String)
+
+    /// Altyazıyı kapatır. Kullanıcı için geçerli bir seçimdir, hata değildir.
+    func disableSubtitles()
 }

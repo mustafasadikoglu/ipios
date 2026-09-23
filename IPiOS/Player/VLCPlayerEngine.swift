@@ -39,6 +39,9 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
     @Published private(set) var didResumeFromSavedPosition: Bool = false
     @Published private(set) var isBuffering: Bool = false
 
+    /// İçerikteki ses ve altyazı izleri. Akış çözülene kadar boştur.
+    @Published private(set) var tracks: PlaybackTrackSet = .empty
+
     /// Oynatıcı.
     let player = VLCMediaPlayer()
 
@@ -209,6 +212,12 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         }
         bridge.onBuffering = { [weak self] progress in
             self?.updateBufferingIndicator(progress: progress)
+        }
+        // İz listesi hem bizim seçimimizle hem de libvlc'nin kendi kararıyla
+        // değişebilir (dosyanın varsayılan altyazısını açması gibi). İkisinde de
+        // tek yapılacak iş listeyi yeniden okumaktır.
+        bridge.onTracksChanged = { [weak self] in
+            self?.refreshTracks()
         }
     }
 
@@ -412,6 +421,9 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
             if let item = currentItem {
                 state = .playing(item: item.title)
             }
+            // İzler ancak akış çözüldükten sonra bilinir; liste burada bir kez
+            // okunur ve sonrasında libvlc'nin iz bildirimleriyle tazelenir.
+            refreshTracks()
             updateNowPlaying()
             signalReady(.ready)
 
@@ -594,6 +606,9 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
         lastAttemptTimedOut = false
         savedPosition = 0
         currentItem = nil
+        // İzler içeriğe bağlıdır: oynatıcı durunca liste de boşalmalı, yoksa
+        // bir sonraki film açılana kadar önceki filmin altyazıları menüde kalır.
+        tracks = .empty
         finishSeeking()
 
         if let (savedItem, savedSeconds, savedDuration) = pendingPosition {
@@ -605,6 +620,83 @@ final class VLCPlayerEngine: NSObject, ObservableObject, PlaybackProviding {
                 )
             }
         }
+    }
+
+    // MARK: - İzler (ses / altyazı)
+
+    /// libvlc'nin iz listesini okuyup yayınlanan modele çevirir.
+    ///
+    /// **Neden her seferinde yeniden okunur:** `VLCMediaPlayer` iz nesneleri
+    /// kararlı değildir; libvlc'nin iz listesinden her okumada yeniden üretilir
+    /// (kaynak: VLCKit `VLCMediaPlayer (Tracks)`, sürüm `4.0.0-a24`). Bu yüzden
+    /// modelimizde nesne değil **kimlik** (`trackId`) saklanır ve seçim o
+    /// kimlikle yapılır.
+    ///
+    /// **Neden libvlc'nin iz bildirimlerine tek başına güvenilmez:** akış
+    /// çözüldükten sonra izler bildirim gelmeden de görünür hâle gelebilir.
+    /// Bu yüzden liste hem oynatma başladığında hem de her iz bildiriminde
+    /// okunur. Okuma ucuzdur: yerel bir liste kopyalanır, ağa çıkılmaz.
+    private func refreshTracks() {
+        let audioTracks = player.audioTracks
+        let textTracks = player.textTracks
+
+        tracks = PlaybackTrackSet(
+            audio: Self.makeTracks(from: audioTracks, kind: .audio),
+            subtitles: Self.makeTracks(from: textTracks, kind: .subtitle),
+            selectedAudioID: audioTracks.first(where: { $0.isSelected })?.trackId,
+            // Seçili altyazı yoksa bu "altyazı kapalı" demektir ve geçerlidir;
+            // `nil` olarak kalır.
+            selectedSubtitleID: textTracks.first(where: { $0.isSelected })?.trackId
+        )
+    }
+
+    /// libvlc iz nesnelerini arayüz modeline çevirir.
+    ///
+    /// `ordinal` sıra numarasıdır: gömülü izlerin çoğunda ad alanı bomboş gelir
+    /// ve arayüz "Altyazı 2" gibi bir etiket üretmek zorundadır. Numarayı burada
+    /// vermek, arayüzün listeyi yeniden sıralamasını gereksiz kılar.
+    private static func makeTracks(
+        from playerTracks: [VLCMediaPlayer.Track],
+        kind: PlaybackTrack.Kind
+    ) -> [PlaybackTrack] {
+        playerTracks.enumerated().map { index, track in
+            PlaybackTrack(
+                id: track.trackId,
+                name: track.trackName,
+                language: track.language,
+                kind: kind,
+                ordinal: index
+            )
+        }
+    }
+
+    func selectAudioTrack(id: String) {
+        guard let index = tracks.index(of: id, in: .audio) else { return }
+
+        // **Neden `selectTrack(at:type:)` değil de nesne üzerinden seçim:**
+        // `selectedExclusively` doğrudan libvlc'nin tek iz seçme çağrısını
+        // yapar ve diğer ses izlerini kendiliğinden bırakır. Yalnızca indeks
+        // veren varyant, aynı indeksin başka bir listeye denk gelmesi
+        // durumunda sessizce yanlış izi seçebilirdi.
+        let list = player.audioTracks
+        guard index < list.count else { return }
+        list[index].isSelectedExclusively = true
+        refreshTracks()
+    }
+
+    func selectSubtitleTrack(id: String) {
+        guard let track = player.textTracks.first(where: { $0.trackId == id }) else { return }
+
+        // Altyazıda birden fazla izin aynı anda açık olması geçerlidir (aynı
+        // anda iki dil gösterme). libvlc bu yüzden tek seçim yerine **liste**
+        // alan bir API sunar; tek iz seçerken de o API kullanılır.
+        player.selectTextTracks([track])
+        refreshTracks()
+    }
+
+    func disableSubtitles() {
+        player.deselectAllTextTracks()
+        refreshTracks()
     }
 
     func seek(by seconds: Double) {
@@ -806,11 +898,53 @@ private final class EngineBridge: NSObject, VLCMediaPlayerDelegate {
     var onTime: (@MainActor (Double) -> Void)?
     var onLength: (@MainActor (Double) -> Void)?
     var onBuffering: (@MainActor (Float) -> Void)?
+    var onTracksChanged: (@MainActor () -> Void)?
 
     func mediaPlayerStateChanged(_ newState: VLCMediaPlayerState) {
         let handler = onState
         Task { @MainActor in handler?(newState) }
     }
+
+    /// İz eklendi/çıkarıldı/güncellendi. Üçü de aynı işi tetikler: listeyi
+    /// yeniden oku. Ayrı ayrı ele almanın bir faydası yoktur — liste zaten
+    /// libvlc'den bütün olarak okunur.
+    func mediaPlayerTrackAdded(_ trackId: String, withType trackType: VLCMedia.TrackType) {
+        let handler = onTracksChanged
+        Task { @MainActor in handler?() }
+    }
+
+    func mediaPlayerTrackRemoved(_ trackId: String, withType trackType: VLCMedia.TrackType) {
+        let handler = onTracksChanged
+        Task { @MainActor in handler?() }
+    }
+
+    func mediaPlayerTrackUpdated(_ trackId: String, withType trackType: VLCMedia.TrackType) {
+        let handler = onTracksChanged
+        Task { @MainActor in handler?() }
+    }
+
+    // `mediaPlayerTrackSelected:selectedId:unselectedId:` **bilerek uygulanmaz.**
+    //
+    // Başlıkta (VLCKit `4.0.0-a24`, `Headers/Public/Playback/VLCMediaPlayer.h`)
+    // bu metot `NS_ASSUME_NONNULL_BEGIN` bloğu içinde bildirilmiştir, yani
+    // varsayılan olarak `nonnull`. Ancak uygulamada (`Sources/Playback/
+    // VLCMediaPlayer.m`, `HandleMediaPlayerTrackSelectionChanged`) iki parametre
+    // de nil olabiliyor:
+    //
+    //     NSString *unselectedId = unselected ? [NSString stringWithUTF8String:unselected] : nil;
+    //
+    // Swift `nonnull` bir `NSString *` parametresini **`String`** (opsiyonel
+    // değil) olarak içeri alır. nil geçildiğinde köprüleme çöker — ve nil tam da
+    // **hiçbir iz seçili değilken** bir iz seçildiğinde geçilir, yani kullanıcı
+    // altyazıyı ilk kez açtığında. Başlıktaki `nonnull` işareti bu yüzden bir
+    // güvence değil, bir yanlış anlamadır.
+    //
+    // Bu geri çağrıdan vazgeçmenin işlevsel kaybı yoktur: seçim yapan üç yolun
+    // üçü de (`selectAudioTrack`, `selectSubtitleTrack`, `disableSubtitles`)
+    // listeyi kendisi tazeler. libvlc'nin **kendi kararıyla** bir iz seçmesi
+    // durumu ise iz listesine ekleme (`mediaPlayerTrackAdded`) ve güncelleme
+    // (`mediaPlayerTrackUpdated`) bildirimleriyle yakalanır; liste o bildirimde
+    // zaten yeniden okunur ve `isSelected` libvlc'den taze gelir.
 
     func mediaPlayerTimeChanged(_ aNotification: Notification) {
         guard let player = aNotification.object as? VLCMediaPlayer else { return }
